@@ -22,6 +22,12 @@ theorem programmedPadArithmeticHas100Bits :
       ArgoMAC.Security.permutationWork ArgoMAC.Security.programmedPadError :=
   ArgoMAC.Security.programmedPadArithmeticHas100Bits
 
+theorem selectedBranchProgrammingArithmeticHas100Bits (bit : Bool) :
+    Cryptography.Assumptions.ConcreteBound 100
+      ArgoMAC.Security.permutationWork
+      (ArgoMAC.Security.selectedBranchProgrammedError bit) :=
+  ArgoMAC.Security.selectedBranchProgrammingArithmeticHas100Bits bit
+
 theorem hashLiftRoundingArithmeticHas100Bits :
     Cryptography.Assumptions.WorkPerAdvantage 100 1
       ArgoMAC.Security.hashLiftRoundingError :=
@@ -31,6 +37,7 @@ theorem hashLiftRoundingArithmeticHas100Bits :
 #print axioms fullScheduleTransferredCTPRFDoesNotHave100Bits
 #print axioms programmedHashArithmeticHas100Bits
 #print axioms programmedPadArithmeticHas100Bits
+#print axioms selectedBranchProgrammingArithmeticHas100Bits
 #print axioms hashLiftRoundingArithmeticHas100Bits
 #print axioms ArgoMAC.Security.pointLayerUsesLinkedInputKey
 #print axioms ArgoMAC.Security.recordFixed_preservesInvariant
@@ -43,6 +50,9 @@ theorem hashLiftRoundingArithmeticHas100Bits :
 #print axioms ArgoMAC.Security.programPermutation_symm
 #print axioms ArgoMAC.Security.programPermutation_preserves
 #print axioms ArgoMAC.Security.map_uniform_swapProgramPair
+#print axioms ArgoMAC.Security.map_uniform_swapProgramTapeStep
+#print axioms ArgoMAC.Security.map_uniform_swapProgramTapeSchedule
+#print axioms ArgoMAC.Security.map_uniform_swapFreshProgrammingSample
 #print axioms ArgoMAC.Security.map_uniform_updateProgramPair
 #print axioms ArgoMAC.Security.programFixed_preservesInvariant
 #print axioms ArgoMAC.Security.programEnc_preservesInvariant

@@ -296,6 +296,8 @@ Each map sends $(O,t)$ to the programmed oracle and the old value $O(x)$.
 Each map is an involution on a finite sample space.
 Thus, each map preserves the uniform joint PMF exactly.
 Programming a fixed output alone does not preserve uniformity.
+The permutation law also composes over every fixed finite target-tape schedule.
+It also preserves the uniform fiber of fresh oracles that match a fixed query transcript.
 
 The complete row repairs the known perfect-correctness failure.
 The Rust permutation schedule still lacks a complete adaptive-privacy reduction.
@@ -306,7 +308,8 @@ Its zero-query numerator is
 \]
 The 100-bit margin is 2,814,100 numerator units.
 A direct five-slot union bound exceeds $2^{28}$.
-The proof must use the exclusive three-hash or two-pad branch.
+Lean proves the 100-bit arithmetic for each exclusive three-hash or two-pad branch.
+The semantic reduction must still condition on the selected branch.
 The current Lean challenge library also defines no \texttt{Kriterion.Benchmark.garble}.
 The PR does not forge either missing item.
 

@@ -10,7 +10,7 @@ namespace Kriterion.ArgoMAC.Security
 
 open BN254 Cryptography
 
-universe uSample uDomain uRange
+universe uSample uDomain uRange uIndex uSlot
 
 /-- An equivalence preserves the uniform distribution on one finite type. -/
 theorem map_uniformOfFintype_equiv
@@ -172,6 +172,83 @@ theorem map_uniform_swapProgramPair
       PMF.uniformOfFintype (PermutationOracle Index Block × Block) :=
   map_uniformOfFintype_equiv (swapProgramEquiv (Index := Index) index input)
 
+/-- This map programs one point from one coordinate of a target tape. -/
+def swapProgramTapeStep {Index : Type uIndex} {Slot : Type uSlot}
+    [DecidableEq Index] [DecidableEq Slot]
+    (index : Index) (input : Block) (slot : Slot) :
+    PermutationOracle Index Block × (Slot → Block) →
+      PermutationOracle Index Block × (Slot → Block) :=
+  fun sample =>
+    (programPermutation sample.1 index input (sample.2 slot),
+      Function.update sample.2 slot (sample.1.permutation index input))
+
+/-- Applying one target-tape step two times restores its input. -/
+theorem swapProgramTapeStep_involutive
+    {Index : Type uIndex} {Slot : Type uSlot}
+    [DecidableEq Index] [DecidableEq Slot]
+    (index : Index) (input : Block) (slot : Slot) :
+    Function.Involutive (swapProgramTapeStep index input slot) := by
+  intro sample
+  rcases sample with ⟨oracle, tape⟩
+  refine Prod.ext ?_ ?_
+  · simp only [swapProgramTapeStep, Function.update_self]
+    exact congrArg Prod.fst
+      (swapProgramPair_involutive index input (oracle, tape slot))
+  · funext current
+    by_cases sameSlot : current = slot
+    · subst current
+      simp [swapProgramTapeStep, programPermutation_apply]
+    · simp [swapProgramTapeStep, sameSlot]
+
+/-- This equivalence contains one target-tape step. -/
+noncomputable def swapProgramTapeStepEquiv
+    {Index : Type uIndex} {Slot : Type uSlot}
+    [DecidableEq Index] [DecidableEq Slot]
+    (index : Index) (input : Block) (slot : Slot) :
+    (PermutationOracle Index Block × (Slot → Block)) ≃
+      (PermutationOracle Index Block × (Slot → Block)) :=
+  (swapProgramTapeStep_involutive index input slot).toPerm
+
+/-- One target-tape step preserves its uniform joint distribution exactly. -/
+theorem map_uniform_swapProgramTapeStep
+    {Index : Type uIndex} {Slot : Type uSlot}
+    [Fintype Index] [DecidableEq Index]
+    [Fintype Slot] [DecidableEq Slot]
+    (index : Index) (input : Block) (slot : Slot) :
+    (PMF.uniformOfFintype
+      (PermutationOracle Index Block × (Slot → Block))).map
+        (swapProgramTapeStep index input slot) =
+      PMF.uniformOfFintype
+        (PermutationOracle Index Block × (Slot → Block)) :=
+  map_uniformOfFintype_equiv
+    (swapProgramTapeStepEquiv index input slot)
+
+/-- This equivalence composes a fixed list of target-tape steps. -/
+noncomputable def swapProgramTapeScheduleEquiv
+    {Index : Type uIndex} {Slot : Type uSlot}
+    [DecidableEq Index] [DecidableEq Slot] :
+    List (Index × Block × Slot) →
+      (PermutationOracle Index Block × (Slot → Block)) ≃
+        (PermutationOracle Index Block × (Slot → Block))
+  | [] => Equiv.refl _
+  | point :: rest =>
+      (swapProgramTapeStepEquiv point.1 point.2.1 point.2.2).trans
+        (swapProgramTapeScheduleEquiv rest)
+
+/-- A fixed swap-programming schedule preserves the uniform joint tape exactly. -/
+theorem map_uniform_swapProgramTapeSchedule
+    {Index : Type uIndex} {Slot : Type uSlot}
+    [Fintype Index] [DecidableEq Index]
+    [Fintype Slot] [DecidableEq Slot]
+    (schedule : List (Index × Block × Slot)) :
+    (PMF.uniformOfFintype
+      (PermutationOracle Index Block × (Slot → Block))).map
+        (swapProgramTapeScheduleEquiv schedule) =
+      PMF.uniformOfFintype
+        (PermutationOracle Index Block × (Slot → Block)) :=
+  map_uniformOfFintype_equiv
+    (swapProgramTapeScheduleEquiv schedule)
+
 /-- This map programs one function point and returns its old output. -/
 def updateProgramPair {Domain : Type uDomain} {Range : Type uRange}
     [DecidableEq Domain] (input : Domain) :
@@ -229,6 +306,82 @@ theorem programPermutation_preserves [DecidableEq Index]
     rw [recordMatches]
     exact Equiv.swap_apply_of_ne_of_ne differentImage different.2
   · simp [programPermutation, sameIndex, recordMatches]
+
+/-- This type contains one fresh programming pair that matches a fixed transcript. -/
+def FreshProgrammingSample {Index : Type uIndex} [DecidableEq Index]
+    (history : List (PermutationRecord Index Block))
+    (index : Index) (input : Block) :=
+  { sample : PermutationOracle Index Block × Block //
+    PermutationTranscriptMatches sample.1 history ∧
+      FreshPermutationPair history index input sample.2 }
+
+noncomputable instance freshProgrammingSampleFintype
+    {Index : Type uIndex} [Fintype Index] [DecidableEq Index]
+    (history : List (PermutationRecord Index Block))
+    (index : Index) (input : Block) :
+    Fintype (FreshProgrammingSample history index input) := by
+  classical
+  exact Fintype.subtype
+    (Finset.univ.filter fun sample : PermutationOracle Index Block × Block =>
+      PermutationTranscriptMatches sample.1 history ∧
+        FreshPermutationPair history index input sample.2) (by simp)
+
+/-- This map swaps one fresh pair inside a fixed transcript fiber. -/
+def swapFreshProgrammingSample
+    {Index : Type uIndex} [DecidableEq Index]
+    (history : List (PermutationRecord Index Block))
+    (index : Index) (input : Block) :
+    FreshProgrammingSample history index input →
+      FreshProgrammingSample history index input := by
+  intro sample
+  refine ⟨swapProgramPair index input sample.1, ?_⟩
+  constructor
+  · intro record member
+    exact programPermutation_preserves sample.1.1 index input sample.1.2
+      record (sample.2.1 record member) (sample.2.2 record member)
+  · intro record member sameIndex
+    have fresh := sample.2.2 record member sameIndex
+    constructor
+    · exact fresh.1
+    · intro sameRange
+      apply fresh.1
+      apply (sample.1.1.permutation record.index).injective
+      rw [sample.2.1 record member]
+      simpa [sameIndex] using sameRange
+
+/-- The fresh swap map is an involution inside its transcript fiber. -/
+theorem swapFreshProgrammingSample_involutive
+    {Index : Type uIndex} [DecidableEq Index]
+    (history : List (PermutationRecord Index Block))
+    (index : Index) (input : Block) :
+    Function.Involutive
+      (swapFreshProgrammingSample history index input) := by
+  intro sample
+  apply Subtype.ext
+  exact swapProgramPair_involutive index input sample.1
+
+/-- This equivalence contains the fresh swap map in one transcript fiber. -/
+noncomputable def swapFreshProgrammingSampleEquiv
+    {Index : Type uIndex} [DecidableEq Index]
+    (history : List (PermutationRecord Index Block))
+    (index : Index) (input : Block) :
+    FreshProgrammingSample history index input ≃
+      FreshProgrammingSample history index input :=
+  (swapFreshProgrammingSample_involutive history index input).toPerm
+
+/-- Fresh swap programming preserves a uniform transcript fiber exactly. -/
+theorem map_uniform_swapFreshProgrammingSample
+    {Index : Type uIndex} [Fintype Index] [DecidableEq Index]
+    (history : List (PermutationRecord Index Block))
+    (index : Index) (input : Block)
+    [Nonempty (FreshProgrammingSample history index input)] :
+    (PMF.uniformOfFintype
+      (FreshProgrammingSample history index input)).map
+        (swapFreshProgrammingSample history index input) =
+      PMF.uniformOfFintype
+        (FreshProgrammingSample history index input) :=
+  map_uniformOfFintype_equiv
+    (swapFreshProgrammingSampleEquiv history index input)
 
 /-- A matching permutation transcript defines one partial injection. -/
 theorem permutationTranscriptMatches_consistent

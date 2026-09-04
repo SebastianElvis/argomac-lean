@@ -161,6 +161,17 @@ theorem programmedPadArithmeticHas100Bits :
     ConcreteBound 100 permutationWork programmedPadError :=
   programmedScheduleArithmeticHas100Bits Pipeline.padPermutationCount (by decide)
 
+/-- One selected branch pays for its active schedule only. -/
+noncomputable def selectedBranchProgrammedError (bit : Bool) : Nat → ℝ :=
+  if bit then programmedPadError else programmedHashError
+
+/-- Each selected branch retains 100-bit arithmetic without a five-slot sum. -/
+theorem selectedBranchProgrammingArithmeticHas100Bits (bit : Bool) :
+    ConcreteBound 100 permutationWork (selectedBranchProgrammedError bit) := by
+  cases bit
+  · exact programmedHashArithmeticHas100Bits
+  · exact programmedPadArithmeticHas100Bits
+
 /-- This value counts all bit-adaptor evaluations in one circuit. -/
 def bitAdaptorEvaluationCount : Nat :=
   Pipeline.digitAdaptorCount * coordinateBitCount
