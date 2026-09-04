@@ -537,6 +537,30 @@ inductive GateScheduleFresh : SimulatorState → List GateDirective → Prop
 def gateScheduleActiveSlotCount (schedule : List GateDirective) : Nat :=
   (schedule.map GateDirective.activeSlotCount).sum
 
+/-- This schedule programs one complete digit adaptor. -/
+def digitGateSchedule {count : Nat}
+    (location : Pipeline.FixedKeyLocation)
+    (tables : Vector BitAdaptor.Table count) (values : Fin count → Bool)
+    (labels : Vector Block count) (targets : Fin count → BaseField)
+    (lifts : ∀ index, HashLift (targets index)) : List GateDirective :=
+  List.ofFn fun index : Fin count => {
+    location
+    window := BitAdaptor.fixedKeyWindowIndex index.val
+    bit := values index
+    label := labels.get index
+    table := tables.get index
+    target := targets index
+    lift := lifts index
+  }
+
+theorem digitGateSchedule_length {count : Nat}
+    (location : Pipeline.FixedKeyLocation)
+    (tables : Vector BitAdaptor.Table count) (values : Fin count → Bool)
+    (labels : Vector Block count) (targets : Fin count → BaseField)
+    (lifts : ∀ index, HashLift (targets index)) :
+    (digitGateSchedule location tables values labels targets lifts).length = count := by
+  simp [digitGateSchedule]
+
 theorem programFixedSlot_fixedTranscript_of_fresh (state : SimulatorState)
     (location : Pipeline.FixedKeyLocation) (window : Nat)
     (slot : Pipeline.FixedKeySlot) (label block : Block)
@@ -864,6 +888,49 @@ def GateScheduleSatisfied (state : SimulatorState)
     (schedule : List GateDirective) : Prop :=
   ∀ directive ∈ schedule, directive.Satisfied state
 
+/-- A satisfied digit schedule returns every requested per-bit target. -/
+theorem digitGateSchedule_evaluate
+    {count : Nat} (state : SimulatorState)
+    (location : Pipeline.FixedKeyLocation)
+    (tables : Vector BitAdaptor.Table count) (values : Fin count → Bool)
+    (labels : Vector Block count) (targets : Fin count → BaseField)
+    (lifts : ∀ index, HashLift (targets index))
+    (satisfied : GateScheduleSatisfied state
+      (digitGateSchedule location tables values labels targets lifts)) :
+    DigitAdaptor.evaluate
+        (fun window => Pipeline.fixedKeyWindow state.fixedOracle location window)
+        values tables labels = Vector.ofFn targets := by
+  apply Vector.ext
+  intro index inRange
+  let current : Fin count := ⟨index, inRange⟩
+  have member : ({
+      location
+      window := BitAdaptor.fixedKeyWindowIndex current.val
+      bit := values current
+      label := labels.get current
+      table := tables.get current
+      target := targets current
+      lift := lifts current
+    } : GateDirective) ∈ digitGateSchedule location tables values labels targets lifts := by
+    exact List.mem_ofFn.mpr ⟨current, rfl⟩
+  simpa [DigitAdaptor.evaluate, current] using satisfied _ member
+
+/-- A satisfied digit schedule returns the requested weighted field value. -/
+theorem digitGateSchedule_evaluateValue
+    {count : Nat} (state : SimulatorState)
+    (location : Pipeline.FixedKeyLocation)
+    (tables : Vector BitAdaptor.Table count) (values : Fin count → Bool)
+    (labels : Vector Block count) (targets : Fin count → BaseField)
+    (lifts : ∀ index, HashLift (targets index))
+    (satisfied : GateScheduleSatisfied state
+      (digitGateSchedule location tables values labels targets lifts)) :
+    DigitAdaptor.fromBits (fun index =>
+      (DigitAdaptor.evaluate
+        (fun window => Pipeline.fixedKeyWindow state.fixedOracle location window)
+        values tables labels).get index) = DigitAdaptor.fromBits targets := by
+  rw [digitGateSchedule_evaluate state location tables values labels targets lifts satisfied]
+  simp
+
 /-- The final state satisfies every target in one fresh schedule. -/
 theorem programGateSchedule_satisfies_of_fresh
     {state : SimulatorState} {schedule : List GateDirective}
@@ -898,5 +965,26 @@ theorem programGateSchedule_satisfies_of_notBad
     GateScheduleSatisfied (programGateSchedule state schedule) schedule :=
   programGateSchedule_satisfies_of_fresh
     (programGateSchedule_fresh_of_notBad state schedule notBad) invariant
+
+/-- Collision-free programming makes one digit return its requested value. -/
+theorem programDigitGateSchedule_evaluateValue
+    {count : Nat} (state : SimulatorState)
+    (location : Pipeline.FixedKeyLocation)
+    (tables : Vector BitAdaptor.Table count) (values : Fin count → Bool)
+    (labels : Vector Block count) (targets : Fin count → BaseField)
+    (lifts : ∀ index, HashLift (targets index))
+    (invariant : SimulatorInvariant state)
+    (notBad : (programGateSchedule state
+      (digitGateSchedule location tables values labels targets lifts)).bad = false) :
+    DigitAdaptor.fromBits (fun index =>
+      (DigitAdaptor.evaluate
+        (fun window => Pipeline.fixedKeyWindow
+          (programGateSchedule state
+            (digitGateSchedule location tables values labels targets lifts)).fixedOracle
+          location window)
+        values tables labels).get index) = DigitAdaptor.fromBits targets := by
+  apply digitGateSchedule_evaluateValue
+  exact programGateSchedule_satisfies_of_notBad state
+    (digitGateSchedule location tables values labels targets lifts) invariant notBad
 
 end Kriterion.ArgoMAC.Security
