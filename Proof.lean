@@ -4,11 +4,8 @@ The paper source is https://github.com/babylonlabs-io/BaBe.latex/tree/e2dcf4d540
 -/
 
 import Construction
-import Proof.AdaptivePrivacy
-import Proof.Components
-import Proof.Correctness
-import Proof.E2E
 import Proof.Gate
 import Proof.Linking
 import Proof.Security
 import Proof.Simulator
+import Proof.Tests
