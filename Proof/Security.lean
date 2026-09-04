@@ -72,6 +72,35 @@ theorem uniformBlockTwoPointEvent_le (first second : Block) :
   apply uniformBlockFinsetMass_le _ 2
   exact Finset.card_le_two
 
+/-- A list of local forbidden sets has the sum of its per-step cardinality bounds. -/
+theorem uniformBlockFinsetMass_sum_le (forbidden : List (Finset Block)) (count : Nat)
+    (cardBound : ∀ current ∈ forbidden, current.card ≤ count) :
+    (forbidden.map fun current =>
+      (PMF.uniformOfFintype Block).toOuterMeasure (current : Set Block)).sum ≤
+      (forbidden.length * count : ENNReal) *
+        Inv.inv (↑(2 ^ blockBits : Nat) : ENNReal) := by
+  induction forbidden with
+  | nil => simp
+  | cons current tail inductionHypothesis =>
+      have currentBound := uniformBlockFinsetMass_le current count
+        (cardBound current (by simp))
+      have tailBound : ∀ next ∈ tail, next.card ≤ count := by
+        intro next member
+        exact cardBound next (by simp [member])
+      have remainingBound := inductionHypothesis tailBound
+      simp only [List.length_cons, Nat.cast_add, Nat.cast_one]
+      calc
+        (PMF.uniformOfFintype Block).toOuterMeasure (current : Set Block) +
+            (tail.map fun next =>
+              (PMF.uniformOfFintype Block).toOuterMeasure (next : Set Block)).sum ≤
+          (count : ENNReal) * Inv.inv (↑(2 ^ blockBits : Nat) : ENNReal) +
+            (tail.length * count : ENNReal) *
+              Inv.inv (↑(2 ^ blockBits : Nat) : ENNReal) :=
+          add_le_add currentBound remainingBound
+        _ = ((tail.length + 1) * count : ENNReal) *
+              Inv.inv (↑(2 ^ blockBits : Nat) : ENNReal) := by
+          ring
+
 /-- The paper base-`(2 - omega)` case uses 92 active inputs per bucket. -/
 def paperActiveInputsPerBucket : Nat := 92
 
