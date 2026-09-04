@@ -291,6 +291,12 @@ Lean proves that the encoding key contains the 508 Lamport label pairs in x-then
 It proves that encoding selects the label for each bit of \texttt{affineLamportBits}.
 The theorem is \texttt{Lamport.compatible}.
 
+Lean proves exact joint-tape laws for fresh permutation and random-oracle programming.
+Each map sends $(O,t)$ to the programmed oracle and the old value $O(x)$.
+Each map is an involution on a finite sample space.
+Thus, each map preserves the uniform joint PMF exactly.
+Programming a fixed output alone does not preserve uniformity.
+
 The complete row repairs the known perfect-correctness failure.
 The Rust permutation schedule still lacks a complete adaptive-privacy reduction.
 The worst selected branch uses the three hash slots.

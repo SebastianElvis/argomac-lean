@@ -10,6 +10,23 @@ namespace Kriterion.ArgoMAC.Security
 
 open BN254 Cryptography
 
+universe uSample uDomain uRange
+
+/-- An equivalence preserves the uniform distribution on one finite type. -/
+theorem map_uniformOfFintype_equiv
+    {Sample : Type uSample} [Fintype Sample] [Nonempty Sample]
+    (equivalence : Sample ≃ Sample) :
+    (PMF.uniformOfFintype Sample).map equivalence =
+      PMF.uniformOfFintype Sample := by
+  classical
+  apply PMF.ext
+  intro output
+  rw [PMF.map_apply, PMF.uniformOfFintype_apply]
+  simp only [PMF.uniformOfFintype_apply, ← equivalence.symm_apply_eq,
+    eq_comm]
+  exact (tsum_ite_eq (equivalence.symm output)
+    (Inv.inv (Fintype.card Sample : ENNReal))).symm
+
 /-- This value identifies one layer in the composed circuit. -/
 inductive Layer
   | input
@@ -93,6 +110,15 @@ def programPermutation [DecidableEq Index] (oracle : PermutationOracle Index Blo
   else oracle.permutation current
 }
 
+/-- This map programs one point and returns its old range value. -/
+def swapProgramPair [DecidableEq Index]
+    (index : Index) (input : Block) :
+    PermutationOracle Index Block × Block →
+      PermutationOracle Index Block × Block :=
+  fun sample =>
+    (programPermutation sample.1 index input sample.2,
+      sample.1.permutation index input)
+
 theorem programPermutation_apply [DecidableEq Index]
     (oracle : PermutationOracle Index Block) (index : Index) (input output : Block) :
     (programPermutation oracle index input output).permutation index input = output := by
@@ -103,6 +129,88 @@ theorem programPermutation_symm [DecidableEq Index]
     ((programPermutation oracle index input output).permutation index).symm output = input := by
   rw [Equiv.symm_apply_eq]
   exact (programPermutation_apply oracle index input output).symm
+
+/-- Applying the swap-programming map two times restores its input. -/
+theorem swapProgramPair_involutive [DecidableEq Index]
+    (index : Index) (input : Block) :
+    Function.Involutive (swapProgramPair index input) := by
+  intro sample
+  rcases sample with ⟨oracle, target⟩
+  refine Prod.ext ?_ ?_
+  · change programPermutation
+      (programPermutation oracle index input target) index input
+        (oracle.permutation index input) = oracle
+    cases oracle with
+    | mk permutation =>
+      change PermutationOracle.mk _ = PermutationOracle.mk permutation
+      rw [PermutationOracle.mk.injEq]
+      funext current
+      by_cases sameIndex : current = index
+      · subst current
+        apply Equiv.ext
+        intro value
+        simp only [programPermutation, if_pos, Equiv.trans_apply,
+          Equiv.swap_apply_left]
+        rw [Equiv.swap_comm target]
+        exact Equiv.swap_apply_self _ _ _
+      · simp [programPermutation, sameIndex]
+  · exact programPermutation_apply oracle index input target
+
+/-- This equivalence contains the swap-programming map. -/
+noncomputable def swapProgramEquiv [DecidableEq Index]
+    (index : Index) (input : Block) :
+    (PermutationOracle Index Block × Block) ≃
+      (PermutationOracle Index Block × Block) :=
+  (swapProgramPair_involutive index input).toPerm
+
+/-- Fresh swap programming preserves the uniform joint distribution exactly. -/
+theorem map_uniform_swapProgramPair
+    [Fintype Index] [DecidableEq Index]
+    (index : Index) (input : Block) :
+    (PMF.uniformOfFintype (PermutationOracle Index Block × Block)).map
+        (swapProgramPair index input) =
+      PMF.uniformOfFintype (PermutationOracle Index Block × Block) :=
+  map_uniformOfFintype_equiv (swapProgramEquiv (Index := Index) index input)
+
+/-- This map programs one function point and returns its old output. -/
+def updateProgramPair {Domain : Type uDomain} {Range : Type uRange}
+    [DecidableEq Domain] (input : Domain) :
+    (Domain → Range) × Range → (Domain → Range) × Range :=
+  fun sample =>
+    (Function.update sample.1 input sample.2, sample.1 input)
+
+/-- Applying the function-programming map two times restores its input. -/
+theorem updateProgramPair_involutive
+    {Domain : Type uDomain} {Range : Type uRange} [DecidableEq Domain]
+    (input : Domain) : Function.Involutive
+      (updateProgramPair (Range := Range) input) := by
+  intro sample
+  rcases sample with ⟨oracle, target⟩
+  refine Prod.ext ?_ ?_
+  · funext current
+    by_cases sameInput : current = input
+    · subst current
+      simp [updateProgramPair]
+    · simp [updateProgramPair]
+  · simp [updateProgramPair]
+
+/-- This equivalence contains the function-programming map. -/
+noncomputable def updateProgramEquiv
+    {Domain : Type uDomain} {Range : Type uRange} [DecidableEq Domain]
+    (input : Domain) :
+    ((Domain → Range) × Range) ≃ ((Domain → Range) × Range) :=
+  (updateProgramPair_involutive (Range := Range) input).toPerm
+
+/-- Fresh function programming preserves the uniform joint distribution exactly. -/
+theorem map_uniform_updateProgramPair
+    {Domain : Type uDomain} {Range : Type uRange}
+    [Fintype Domain] [DecidableEq Domain] [Fintype Range] [Nonempty Range]
+    (input : Domain) :
+    (PMF.uniformOfFintype ((Domain → Range) × Range)).map
+        (updateProgramPair input) =
+      PMF.uniformOfFintype ((Domain → Range) × Range) :=
+  map_uniformOfFintype_equiv
+    (updateProgramEquiv (Range := Range) input)
 
 /-- Fresh programming preserves one prior permutation pair. -/
 theorem programPermutation_preserves [DecidableEq Index]

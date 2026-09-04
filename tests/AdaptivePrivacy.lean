@@ -42,6 +42,8 @@ theorem hashLiftRoundingArithmeticHas100Bits :
 #print axioms ArgoMAC.Security.programPermutation_apply
 #print axioms ArgoMAC.Security.programPermutation_symm
 #print axioms ArgoMAC.Security.programPermutation_preserves
+#print axioms ArgoMAC.Security.map_uniform_swapProgramPair
+#print axioms ArgoMAC.Security.map_uniform_updateProgramPair
 #print axioms ArgoMAC.Security.programFixed_preservesInvariant
 #print axioms ArgoMAC.Security.programEnc_preservesInvariant
 #print axioms ArgoMAC.Security.programHash_apply
