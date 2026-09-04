@@ -8,4 +8,3 @@ import Proof.Gate
 import Proof.Linking
 import Proof.Security
 import Proof.Simulator
-import Proof.Tests
