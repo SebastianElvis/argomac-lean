@@ -12,7 +12,7 @@ namespace Kriterion.ArgoMAC.Pipeline
 open BN254 Cryptography
 
 def curveDigitAdaptorCount : Nat := 5
-def pointDigitAdaptorsPerOutput : Nat := 9
+def pointDigitAdaptorsPerOutput : Nat := 13
 
 def digitAdaptorCount : Nat :=
   curveDigitAdaptorCount + FieldMacToECMac.outputMacCount * pointDigitAdaptorsPerOutput
@@ -29,10 +29,10 @@ def hashPermutationCount : Nat :=
 def padPermutationCount : Nat :=
   fixedKeyWindowCount * 2
 
-theorem fixedKeyWindowCountValue : fixedKeyWindowCount = 2472 := by decide
-theorem permutationCountValue : permutationCount = 12360 := by decide
-theorem hashPermutationCountValue : hashPermutationCount = 7416 := by decide
-theorem padPermutationCountValue : padPermutationCount = 4944 := by decide
+theorem fixedKeyWindowCountValue : fixedKeyWindowCount = 3564 := by decide
+theorem permutationCountValue : permutationCount = 17820 := by decide
+theorem hashPermutationCountValue : hashPermutationCount = 10692 := by decide
+theorem padPermutationCountValue : padPermutationCount = 7128 := by decide
 
 inductive CurveAdaptor
   | y4 | y6 | x3 | x5 | x7

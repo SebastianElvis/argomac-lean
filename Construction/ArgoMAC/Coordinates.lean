@@ -1,6 +1,6 @@
 /-
-This file defines the optimized BN254 coordinate polynomials.
-The active paper defines the rows at `eq:c2_coeffs_X` through `eq:c2_coeffs_Z`.
+This file defines the complete BN254 homogeneous addition rows.
+The rows use Algorithm 7 from Renes, Costello, and Batina.
 -/
 
 import BN254
@@ -26,97 +26,109 @@ def evaluate (coefficients : Coefficients) (input : BN254.AffineInput) :
     coefficients.xy * (input.x * input.y) + coefficients.xSquared * input.x ^ 2 +
     coefficients.ySquared * input.y ^ 2
 
-/-- `xCoefficients` defines `eq:c2_coeffs_X`. -/
-def xCoefficients (key : BN254.AffineInput) : Coefficients :=
-  { constant := 6
-    x := key.x ^ 2
-    y := -(2 * key.y)
-    xy := 0
-    xSquared := key.x
-    ySquared := 0 }
+/-- `algorithmX` is the factored RCB X formula for an affine offset. -/
+def algorithmX (offset input : BN254.AffineInput) : BN254.BaseField :=
+  (offset.x * input.y + offset.y * input.x) * (offset.y * input.y - 9) -
+    9 * (offset.y + input.y) * (offset.x + input.x)
 
-/-- `yCoefficients` defines `eq:c2_coeffs_Y`. -/
-def yCoefficients (key : BN254.AffineInput) : Coefficients :=
-  { constant := 9 * key.y
-    x := 0
-    y := -(key.y ^ 2 + 9)
-    xy := -(3 * key.x ^ 2)
-    xSquared := 3 * key.x * key.y
-    ySquared := key.y }
+/-- `algorithmY` is the factored RCB Y formula for an affine offset. -/
+def algorithmY (offset input : BN254.AffineInput) : BN254.BaseField :=
+  (offset.y * input.y + 9) * (offset.y * input.y - 9) +
+    27 * offset.x * input.x * (offset.x + input.x)
 
-/-- `zCoefficients` defines `eq:c2_coeffs_Z`. -/
-def zCoefficients (key : BN254.AffineInput) : Coefficients :=
-  { constant := -key.x
-    x := 1
-    y := 0
-    xy := 0
-    xSquared := 0
-    ySquared := 0 }
+/-- `algorithmZ` is the factored RCB Z formula for an affine offset. -/
+def algorithmZ (offset input : BN254.AffineInput) : BN254.BaseField :=
+  (offset.y + input.y) * (offset.y * input.y + 9) +
+    3 * offset.x * input.x *
+      (offset.x * input.y + offset.y * input.x)
 
-/-- The X-coordinate row has the required polynomial. -/
-theorem evaluateX (key input : BN254.AffineInput) :
-    evaluate (xCoefficients key) input =
-      6 + key.x ^ 2 * input.x - 2 * key.y * input.y + key.x * input.x ^ 2 := by
-  simp [evaluate, xCoefficients]
+/-- `xCoefficients` is the expanded RCB X formula. -/
+def xCoefficients (offset : BN254.AffineInput) : Coefficients := {
+  constant := -9 * offset.x * offset.y
+  x := -18 * offset.y
+  y := -18 * offset.x
+  xy := offset.y ^ 2 - 9
+  xSquared := 0
+  ySquared := offset.x * offset.y
+}
+
+/-- `yCoefficients` is the expanded RCB Y formula. -/
+def yCoefficients (offset : BN254.AffineInput) : Coefficients := {
+  constant := -81
+  x := 27 * offset.x ^ 2
+  y := 0
+  xy := 0
+  xSquared := 27 * offset.x
+  ySquared := offset.y ^ 2
+}
+
+/-- `zCoefficients` is the expanded RCB Z formula. -/
+def zCoefficients (offset : BN254.AffineInput) : Coefficients := {
+  constant := 9 * offset.y
+  x := 0
+  y := offset.y ^ 2 + 9
+  xy := 3 * offset.x ^ 2
+  xSquared := 3 * offset.x * offset.y
+  ySquared := offset.y
+}
+
+/-- The expanded X row equals RCB Algorithm 7. -/
+theorem evaluateX (offset input : BN254.AffineInput) :
+    evaluate (xCoefficients offset) input = algorithmX offset input := by
+  simp only [evaluate, xCoefficients, algorithmX]
   ring
 
-/-- The Y-coordinate row has the required polynomial. -/
-theorem evaluateY (key input : BN254.AffineInput) :
-    evaluate (yCoefficients key) input =
-      9 * key.y - (key.y ^ 2 + 9) * input.y +
-        3 * key.x * key.y * input.x ^ 2 + key.y * input.y ^ 2 -
-        3 * key.x ^ 2 * (input.x * input.y) := by
-  simp [evaluate, yCoefficients]
+/-- The expanded Y row equals RCB Algorithm 7. -/
+theorem evaluateY (offset input : BN254.AffineInput) :
+    evaluate (yCoefficients offset) input = algorithmY offset input := by
+  simp only [evaluate, yCoefficients, algorithmY]
   ring
 
-/-- The Z-coordinate row has the required polynomial. -/
-theorem evaluateZ (key input : BN254.AffineInput) :
-    evaluate (zCoefficients key) input = input.x - key.x := by
-  simp [evaluate, zCoefficients]
+/-- The expanded Z row equals RCB Algorithm 7. -/
+theorem evaluateZ (offset input : BN254.AffineInput) :
+    evaluate (zCoefficients offset) input = algorithmZ offset input := by
+  simp only [evaluate, zCoefficients, algorithmZ]
   ring
 
-/-- The three coordinate polynomials form a Jacobian curve point. -/
-theorem evaluatedOnCurve (key input : BN254.AffineInput)
-    (keyOnCurve : BN254.OnCurve key) (inputOnCurve : BN254.OnCurve input) :
-    let x := evaluate (xCoefficients key) input
-    let y := evaluate (yCoefficients key) input
-    let z := evaluate (zCoefficients key) input
-    y ^ 2 = x ^ 3 + 3 * z ^ 6 := by
-  simp only [evaluateX, evaluateY, evaluateZ, BN254.OnCurve] at keyOnCurve inputOnCurve ⊢
-  linear_combination
-    (input.x ^ 3 * key.y ^ 2 + 9 * input.x ^ 2 * key.x ^ 4 - 6 * input.x ^ 2 * key.x * key.y ^ 2 - 6 * input.x * input.y * key.x ^ 2 * key.y - 6 * input.x * key.x ^ 2 * key.y ^ 2 + 54 * input.x * key.x ^ 2 + input.y ^ 2 * key.y ^ 2 + 6 * input.y * key.y ^ 3 - 18 * input.y * key.y + key.y ^ 4 - 33 * key.y ^ 2 + 81) * inputOnCurve +
-    (input.x ^ 6 - 6 * input.x ^ 5 * key.x + 3 * input.x ^ 4 * key.x ^ 2 + 6 * input.x ^ 3 * input.y * key.y + input.x ^ 3 * key.x ^ 3 + input.x ^ 3 * key.y ^ 2 - 27 * input.x ^ 3 - 6 * input.x ^ 2 * input.y * key.x * key.y + 36 * input.x ^ 2 * key.x - 18 * input.x * key.x ^ 2 + 3 * key.x ^ 3 + 3 * key.y ^ 2 - 9) * keyOnCurve
+private theorem curveYPowers (x y : BN254.BaseField) (onCurve : y ^ 2 = x ^ 3 + 3) :
+    y ^ 3 = y * (x ^ 3 + 3) ∧
+      y ^ 4 = (x ^ 3 + 3) ^ 2 ∧
+      y ^ 5 = y * (x ^ 3 + 3) ^ 2 ∧
+      y ^ 6 = (x ^ 3 + 3) ^ 3 := by
+  constructor
+  · calc
+      y ^ 3 = y * y ^ 2 := by ring
+      _ = y * (x ^ 3 + 3) := by rw [onCurve]
+  constructor
+  · calc
+      y ^ 4 = (y ^ 2) ^ 2 := by ring
+      _ = (x ^ 3 + 3) ^ 2 := by rw [onCurve]
+  constructor
+  · calc
+      y ^ 5 = y * (y ^ 2) ^ 2 := by ring
+      _ = y * (x ^ 3 + 3) ^ 2 := by rw [onCurve]
+  · calc
+      y ^ 6 = (y ^ 2) ^ 3 := by ring
+      _ = (x ^ 3 + 3) ^ 3 := by rw [onCurve]
 
-/-- The recovered X coordinate equals the Mathlib point-addition coordinate. -/
-theorem recoveredX [BN254.FieldCertificate] (key input : BN254.AffineInput)
-    (keyOnCurve : BN254.OnCurve key) (inputOnCurve : BN254.OnCurve input)
-    (xNe : input.x ≠ key.x) :
-    evaluate (xCoefficients key) input / evaluate (zCoefficients key) input ^ 2 =
-      BN254.curve.toAffine.addX input.x key.x
-        (BN254.curve.toAffine.slope input.x key.x input.y key.y) := by
-  rw [evaluateX, evaluateZ, WeierstrassCurve.Affine.slope_of_X_ne xNe]
-  simp only [WeierstrassCurve.Affine.addX, BN254.curve, zero_mul, add_zero, sub_zero]
-  field_simp [sub_ne_zero.mpr xNe]
-  simp only [BN254.OnCurve] at keyOnCurve inputOnCurve
-  linear_combination -inputOnCurve - keyOnCurve
+/-- The three RCB rows satisfy the homogeneous curve equation. -/
+theorem evaluatedOnCurve (offset input : BN254.AffineInput)
+    (offsetOnCurve : BN254.OnCurve offset) (inputOnCurve : BN254.OnCurve input) :
+    let x := evaluate (xCoefficients offset) input
+    let y := evaluate (yCoefficients offset) input
+    let z := evaluate (zCoefficients offset) input
+    y ^ 2 * z = x ^ 3 + 3 * z ^ 3 := by
+  obtain ⟨offsetY3, offsetY4, offsetY5, offsetY6⟩ :=
+    curveYPowers offset.x offset.y offsetOnCurve
+  obtain ⟨inputY3, inputY4, inputY5, inputY6⟩ :=
+    curveYPowers input.x input.y inputOnCurve
+  simp only [evaluate, xCoefficients, yCoefficients, zCoefficients]
+  ring_nf
+  rw [offsetY6, offsetY5, offsetY4, offsetY3, offsetOnCurve,
+    inputY6, inputY5, inputY4, inputY3, inputOnCurve]
+  ring
 
-/-- The recovered Y coordinate equals the Mathlib point-addition coordinate. -/
-theorem recoveredY [BN254.FieldCertificate] (key input : BN254.AffineInput)
-    (keyOnCurve : BN254.OnCurve key) (inputOnCurve : BN254.OnCurve input)
-    (xNe : input.x ≠ key.x) :
-    evaluate (yCoefficients key) input / evaluate (zCoefficients key) input ^ 3 =
-      BN254.curve.toAffine.addY input.x key.x input.y
-        (BN254.curve.toAffine.slope input.x key.x input.y key.y) := by
-  rw [evaluateY, evaluateZ, WeierstrassCurve.Affine.slope_of_X_ne xNe]
-  simp only [WeierstrassCurve.Affine.addY, WeierstrassCurve.Affine.negAddY,
-    WeierstrassCurve.Affine.addX, WeierstrassCurve.Affine.negY, BN254.curve,
-    zero_mul, add_zero, sub_zero]
-  field_simp [sub_ne_zero.mpr xNe]
-  simp only [BN254.OnCurve] at keyOnCurve inputOnCurve
-  linear_combination (input.y - 2 * key.y) * inputOnCurve +
-    (2 * input.y - key.y) * keyOnCurve
-
-/-- `scale` applies one digit endomorphism and one Jacobian randomizer. -/
+/-- `scale` applies one digit endomorphism and one homogeneous randomizer. -/
 def scale (endomorphismBase : Option BN254.BaseField) (randomizer fallback : BN254.BaseField)
     (coefficients : Coefficients) : Coefficients :=
   match endomorphismBase with
@@ -138,7 +150,7 @@ def scale (endomorphismBase : Option BN254.BaseField) (randomizer fallback : BN2
         xSquared := coefficients.xSquared * xScale ^ 2 * randomizer
         ySquared := coefficients.ySquared * yScale ^ 2 * randomizer }
 
-/-- The nonzero digit branch applies the endomorphism and one coordinate randomizer. -/
+/-- A nonzero digit applies the endomorphism and one homogeneous randomizer. -/
 theorem evaluateScaleSome (phi randomizer fallback : BN254.BaseField)
     (coefficients : Coefficients) (input : BN254.AffineInput) :
     evaluate (scale (some phi) randomizer fallback coefficients) input =
@@ -147,36 +159,36 @@ theorem evaluateScaleSome (phi randomizer fallback : BN254.BaseField)
   simp [scale, evaluate]
   ring
 
-/-- The zero digit branch returns the randomized offset coordinate. -/
+/-- A zero digit returns one randomized offset coordinate. -/
 theorem evaluateScaleNone (randomizer fallback : BN254.BaseField)
     (coefficients : Coefficients) (input : BN254.AffineInput) :
     evaluate (scale none randomizer fallback coefficients) input =
       fallback * randomizer := by
   simp [scale, evaluate]
 
-/-- `Rows` contains the three rows for one digit and one point offset. -/
+/-- `Rows` contains the three homogeneous rows for one output MAC. -/
 structure Rows where
   x : Coefficients
   y : Coefficients
   z : Coefficients
 
-/-- `rows` defines the `x_aux`, `y_aux`, and `z_aux` coordinate functions. -/
+/-- `rows` applies the digit endomorphism and a common homogeneous scale. -/
 def rows (offset : BN254.AffineInput) (endomorphismBase : Option BN254.BaseField)
     (randomizer : BN254.BaseField) : Rows := {
-  x := scale endomorphismBase (randomizer ^ 2) offset.x (xCoefficients offset)
-  y := scale endomorphismBase (randomizer ^ 3) offset.y (yCoefficients offset)
+  x := scale endomorphismBase randomizer offset.x (xCoefficients offset)
+  y := scale endomorphismBase randomizer offset.y (yCoefficients offset)
   z := scale endomorphismBase randomizer 1 (zCoefficients offset)
 }
 
-/-- The three rows use the Jacobian powers of one randomizer. -/
+/-- The three nonzero-digit rows use one common homogeneous scale. -/
 theorem evaluateRowsSome (offset input : BN254.AffineInput)
     (phi randomizer : BN254.BaseField) :
     let transformed : BN254.AffineInput :=
       { x := phi ^ 4 * input.x, y := phi ^ 3 * input.y }
     evaluate (rows offset (some phi) randomizer).x input =
-        randomizer ^ 2 * evaluate (xCoefficients offset) transformed ∧
+        randomizer * evaluate (xCoefficients offset) transformed ∧
       evaluate (rows offset (some phi) randomizer).y input =
-        randomizer ^ 3 * evaluate (yCoefficients offset) transformed ∧
+        randomizer * evaluate (yCoefficients offset) transformed ∧
       evaluate (rows offset (some phi) randomizer).z input =
         randomizer * evaluate (zCoefficients offset) transformed := by
   simp [rows, evaluateScaleSome]
@@ -194,7 +206,7 @@ theorem transformedOnCurve (phi : BN254.BaseField) (phiSix : phi ^ 6 = 1)
     show (phi ^ 4) ^ 3 = phi ^ 12 by ring, phiSix, phiTwelve]
   simpa [BN254.OnCurve] using inputOnCurve
 
-/-- The scaled rows form a Jacobian curve point. -/
+/-- The scaled RCB rows satisfy the homogeneous curve equation. -/
 theorem evaluatedRowsOnCurve (offset input : BN254.AffineInput)
     (phi randomizer : BN254.BaseField) (phiSix : phi ^ 6 = 1)
     (offsetOnCurve : BN254.OnCurve offset) (inputOnCurve : BN254.OnCurve input) :
@@ -202,7 +214,7 @@ theorem evaluatedRowsOnCurve (offset input : BN254.AffineInput)
     let x := evaluate rows.x input
     let y := evaluate rows.y input
     let z := evaluate rows.z input
-    y ^ 2 = x ^ 3 + 3 * z ^ 6 := by
+    y ^ 2 * z = x ^ 3 + 3 * z ^ 3 := by
   have transformedOnCurve := transformedOnCurve phi phiSix input inputOnCurve
   have base := evaluatedOnCurve offset
     { x := phi ^ 4 * input.x, y := phi ^ 3 * input.y }
@@ -210,6 +222,6 @@ theorem evaluatedRowsOnCurve (offset input : BN254.AffineInput)
   obtain ⟨xRow, yRow, zRow⟩ := evaluateRowsSome offset input phi randomizer
   simp only
   rw [xRow, yRow, zRow]
-  linear_combination randomizer ^ 6 * base
+  linear_combination randomizer ^ 3 * base
 
 end Kriterion.ArgoMAC.Coordinates

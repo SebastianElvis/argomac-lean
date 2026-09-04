@@ -18,6 +18,15 @@ theorem argoMACOutputCount [FieldCertificate] [GroupCertificate]
     (ArgoMAC.construction.outputs scalar randomness point).length = 91 :=
   ArgoMAC.construction.outputCount scalar randomness point
 
+theorem argoMACPerfectCorrectness [FieldCertificate] [GroupCertificate]
+    [ArgoMAC.TerminationCertificate] :
+    GarbledCircuit.PerfectCorrectness
+      (ArgoMAC.Garbling.garbledCircuit ArgoMAC.construction)
+      (fun randomness =>
+        (randomness.fixedKeyOracle, randomness.encPRFOracle, randomness.hashOracle)) :=
+  ArgoMAC.RCBComplete.perfectCorrectness
+
 #print axioms argoMACRandomizedEncodingCorrect
 #print axioms argoMACRandomizedEncodingPrivate
 #print axioms argoMACOutputCount
+#print axioms argoMACPerfectCorrectness

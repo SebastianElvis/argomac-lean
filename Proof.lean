@@ -7,5 +7,6 @@ import Construction
 import Proof.Base7Termination
 import Proof.Gate
 import Proof.Linking
+import Proof.RCBComplete
 import Proof.Security
 import Proof.Simulator

@@ -1,4 +1,4 @@
-import Proof.Security
+import Proof
 
 open Kriterion Kriterion.BN254
 

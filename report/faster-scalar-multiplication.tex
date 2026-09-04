@@ -1,10 +1,10 @@
 \documentclass[10pt]{article}
-\usepackage[a4paper,margin=22mm]{geometry}
+\usepackage[a4paper,margin=20mm]{geometry}
 \usepackage{amsmath,amssymb,booktabs,array,microtype}
 \usepackage[hidelinks]{hyperref}
 \usepackage{xcolor}
 
-\hypersetup{pdftitle={Optimal 91-Digit BN254 Recoding},pdfauthor={Kriterion research submission}}
+\hypersetup{pdftitle={Fast Complete BN254 Scalar Multiplication},pdfauthor={Kriterion research submission}}
 
 \definecolor{ink}{HTML}{17212B}
 \definecolor{accent}{HTML}{145A7A}
@@ -14,8 +14,8 @@
 \setlength{\parskip}{3pt}
 \renewcommand{\arraystretch}{1.15}
 
-\title{\vspace{-16mm}\textbf{Optimal 91-Digit BN254 Recoding}\\
-\large A faster ArgoMAC scalar-multiplication circuit}
+\title{\vspace{-16mm}\textbf{Fast Complete BN254 Scalar Multiplication}\\
+\large Optimal recoding and complete RCB addition for ArgoMAC}
 \author{Kriterion research submission}
 \date{5 September 2026}
 
@@ -23,13 +23,14 @@
 \maketitle
 
 \begin{abstract}
-The ArgoMAC baseline uses 92 digits in base $2-\omega$.
-This report gives a 91-digit construction for BN254 G1.
-The construction checks four GLV representatives.
-An exact Eisenstein-norm proof shows that one representative terminates in 91 rounds.
-Lean 4.24 checks the proof without new axioms or compiler-trusted evaluation.
-The digit count is optimal for the fixed seven-symbol alphabet.
-The matching Rust code also garbles independent output rows with Rayon.
+The ArgoMAC baseline uses an incomplete point-addition law and 92 digits in base $2-\omega$.
+This report gives a complete 91-digit construction for BN254 G1.
+An exact Eisenstein-norm proof establishes the digit bound.
+A second Lean proof establishes complete Renes--Costello--Batina addition.
+It covers ordinary addition, doubling, and inverse addition.
+The construction uses the minimum adaptor count in the fixed bidegree $(2,2)$ Bosma--Lenstra family.
+Lean 4.24 checks these results without a new axiom or compiler-trusted evaluation.
+The matching Rust code uses the same law and garbles independent rows with Rayon.
 \end{abstract}
 
 \section{Contribution}
@@ -46,7 +47,9 @@ The norm of $\beta$ is seven.
 The baseline uses 92 fixed positions.
 The new construction uses 91 fixed positions for every scalar.
 It keeps the same alphabet and input-label shape.
-It removes one output MAC row, nine digit adaptors, and 11,430 fixed-permutation applications.
+It also replaces the exceptional affine row with one complete homogeneous row.
+The complete row increases the per-row adaptor count from nine to 13.
+Shared garbling passes and parallel row execution offset this extra work.
 
 \section{Four-corner GLV recoding}
 
@@ -132,29 +135,97 @@ A fixed 90-position string over seven symbols has at most $7^{90}$ values.
 It cannot represent all $r$ scalars.
 Thus, 91 is optimal for this fixed alphabet.
 
+\section{Complete homogeneous addition}
+
+Let the hidden offset be $K=(A:B:C)$.
+Let $(u,v)$ be the selected endomorphism image of the evaluator input.
+Use homogeneous coordinates for
+\[
+  Y^2Z=X^3+3Z^3.
+\]
+An affine point is $(x:y:1)$.
+The group identity is $(0:1:0)$.
+
+RCB Algorithm 7 gives these three polynomials:
+\begin{align*}
+ X={}&-9AB-18BCu-18ACv+(B^2-9C^2)uv+ABv^2,\\
+ Y={}&-81C^2+27A^2u+27ACu^2+B^2v^2,\\
+ Z={}&9BC+(B^2+9C^2)v+BCv^2+3A^2uv+3ABu^2.
+\end{align*}
+One fresh nonzero value $\rho$ multiplies all three coordinates.
+This common factor preserves the represented projective point.
+The zero digit returns $\rho(A,B,C)$.
+
+The decoder keeps $Z$ until the final projection.
+For $Z\ne0$, it validates $(X/Z,Y/Z)$ and returns that point.
+For $Z=0$, it accepts only $X=0$ and $Y\ne0$.
+This case returns the group identity.
+It rejects all other zero-denominator triples.
+
+Lean proves the homogeneous curve equation.
+It proves that the output is nonzero and projectively nonsingular.
+It then proves that projective decode equals Mathlib group addition for every valid affine pair.
+The proof has separate cases for different x-coordinates, doubling, and inverse inputs.
+The main results are:
+\begin{itemize}
+  \item \texttt{outputNonsingular};
+  \item \texttt{outputRepresentsSum};
+  \item \texttt{decodeHomogeneous\_eq\_toAffine};
+  \item \texttt{decodeEvaluateRowSome};
+  \item \texttt{decodeEvaluateRowNone};
+  \item \texttt{perfectCorrectness}.
+\end{itemize}
+The axiom audit reports only \texttt{propext}, \texttt{Classical.choice}, and \texttt{Quot.sound}.
+
+\section{Adaptor optimum}
+
+The complete Bosma--Lenstra family has projective parameters
+$[\alpha:\beta:\gamma]$.
+Completeness requires $\beta\ne0$.
+Normalize $\beta=1$.
+Under the exact \texttt{Biquadratic} support rule, the adaptor counts are
+\[
+ D(0,0)=13,\qquad
+ D(0,\gamma)=14\text{ for }\gamma\ne0,\qquad
+ D(\alpha,\gamma)=15\text{ for }\alpha\ne0.
+\]
+Thus, RCB parameters $[0:1:0]$ give the unique minimum of 13.
+This result covers fixed bidegree $(2,2)$ laws in the current masking architecture.
+
+A second lower bound covers private role-preserving linear rows.
+A row with $t$ scalar adaptors exposes $14+t$ selected field values.
+Its adaptor randomness has dimension at most $2t-2$.
+Only the three output coordinates can stay unmasked.
+Thus, $2t-2\ge 11+t$, so $t\ge13$.
+A correct ten-adaptor sharing attempt violates this bound and exposes four extra coefficient invariants.
+The current row reaches 13.
+This result does not exclude a nonlinear garbling architecture.
+
 \section{Circuit cost}
 
 \begin{center}
 \begin{tabular}{lrrr}
 \toprule
-Item & 92 digits & 91 digits & Change \\
+Item & Original 92-row call & Complete 91-row call & Change \\
 \midrule
 Output MAC rows & 92 & 91 & $-1$ \\
-Digit adaptors & 833 & 824 & $-9$ \\
-Bit adaptors & 211,582 & 209,296 & $-2,286$ \\
-Fixed-permutation applications & 1,057,910 & 1,046,480 & $-11,430$ \\
-Public permutation instances & 12,495 & 12,360 & $-135$ \\
+Digit adaptors & 833 & 1,188 & $+355$ \\
+Bit adaptors & 211,582 & 301,752 & $+90,170$ \\
+Fixed-permutation applications & 6,322,060 & 1,508,760 & $-4,813,300$ \\
+Public permutation instances & 12,495 & 17,820 & $+5,325$ \\
 \bottomrule
 \end{tabular}
 \end{center}
 
-The Lean direct-table benchmark used 21 measured runs on each commit.
-The Apple M5 paired medians were 146 ms for the 92-digit shared-pass commit and 144 ms for the 91-digit commit.
-This is a 1.4 percent reduction.
-This small timing change is within short-run noise.
-The exact operation-count reduction is the primary result.
-The larger prior shared-pass change reduced the original 989 ms median to 160 ms.
-Do not multiply these separate ratios.
+The first column counts repeated calls in the unoptimized baseline.
+The last column uses one shared pass for each bit and point row.
+The public instance count increases because the complete law needs more live support.
+
+The Lean direct-table benchmark used 21 measured runs on Apple M5.
+The complete construction has a 231 ms median.
+The original baseline has a 989 ms median.
+The complete construction is 4.28 times faster.
+It reduces the median by 76.6 percent.
 
 \section{Rust row parallelism}
 
@@ -177,14 +248,18 @@ Fixed Boolean arrays replace heap-based coefficient index sets.
 Tests compare one-worker and four-worker tables.
 A second test compares all 273 allocated child nonces with the serial schedule.
 
-On the same Apple M5, the ARMv8 AES row benchmark used 100 Criterion samples.
-The 92-row serial baseline estimate was 15.934 ms.
-The 91-row serial implementation estimate was 15.488 ms.
-The 91-row, 10-worker estimate was 2.704 ms.
-The parallel result is 5.89 times faster than the serial baseline.
-The protocol-level \texttt{encode} benchmark used 10 samples.
-It fell from 81.309 ms to 68.460 ms, a 15.8 percent reduction.
-The ARMv8 backend gain is separate from the algorithmic and scheduling gains.
+On the same Apple M5, the ARMv8 AES benchmarks used 100 Criterion samples.
+The incomplete 92-row serial baseline estimate was 15.934 ms.
+The complete 91-row, 10-worker row mean is 3.845 ms.
+Its 95 percent interval is 3.815 to 3.879 ms.
+The complete row stage is 4.14 times faster than the serial baseline.
+
+The protocol \texttt{encode} mean is 70.402 ms.
+Its 95 percent interval is 70.003 to 70.854 ms.
+The comparable baseline is 81.309 ms.
+The complete implementation reduces this time by 13.4 percent.
+Its HMAC table has 9,668,659 bytes.
+This is 2,970,240 bytes larger than the incomplete 91-row table.
 
 \section{Security scope}
 
@@ -195,6 +270,8 @@ The following invariants stay fixed:
   \item The digit alphabet does not change.
   \item The input keeps 508 Lamport label positions.
   \item The fixed-key window loads stay 91, 91, and 72.
+  \item Every support flag is public and independent of the scalar.
+  \item One nonzero factor scales all three homogeneous coordinates.
   \item Each row uses a separate nonce subtree and RNG stream.
   \item Worker order cannot change the table or caller RNG state.
 \end{itemize}
@@ -204,32 +281,51 @@ This gives a fixed iteration count.
 Lean proves that every tested coordinate fits a signed 128-bit integer.
 The report does not claim compiler-level constant time.
 
-The digit theorem does not repair two baseline obligations.
-The current affine formula has an exceptional input that breaks perfect correctness.
-The Rust permutation schedule also lacks a complete adaptive-privacy reduction.
-The pinned challenge interface is not a closed Lean type and has no benchmark function.
-Therefore, this change is a proved performance contribution, but it is not a valid final challenge certificate at the pinned challenge revision.
+The Rust checked evaluator rejects a coordinate that is at least the base-field modulus before reduction.
+It then checks the curve equation.
+A regression test uses $x=p+1$ and $y=2$.
+Reduction would otherwise map this input to the valid generator $(1,2)$.
+
+The complete row repairs the known perfect-correctness failure.
+The Rust permutation schedule still lacks a complete adaptive-privacy reduction.
+The worst selected branch uses the three hash slots.
+Its zero-query numerator is
+\[
+  3\cdot 10692\cdot 91^2=265621356<2^{28}.
+\]
+The 100-bit margin is 2,814,100 numerator units.
+A direct five-slot union bound exceeds $2^{28}$.
+The proof must use the exclusive three-hash or two-pad branch.
+The current Lean challenge library also defines no \texttt{Kriterion.Benchmark.garble}.
+The PR does not forge either missing item.
 
 \section{Reproduction}
 
 The Lean proof uses Lean 4.24 and the pinned Mathlib checkout.
 Run:
+\begingroup\small
 \begin{verbatim}
 lake build Proof Correctness
 lake env lean entry/tests/Correctness.lean
+lake env lean AxiomCheck.lean
 lake exe bench
 \end{verbatim}
+\endgroup
 
 The Rust validation uses Rust 1.94.0.
 Run:
+\begingroup\small
 \begin{verbatim}
 cargo fmt --all -- --check
 cargo clippy --all-targets --all-features -- -D warnings
 cargo test --all-features
-cargo test --all-features --release
+cargo test --release --all-features
 RAYON_NUM_THREADS=10 cargo bench --all-features \
   --bench field_mac_to_ec_mac -- 'field_mac_to_ec_mac/g1/garble'
+RAYON_NUM_THREADS=10 cargo bench --all-features \
+  --bench protocol_bench -- 'encode'
 \end{verbatim}
+\endgroup
 
 \section*{References}
 
