@@ -220,6 +220,63 @@ theorem advantage_le_of_tracedCoupling
     rw [PMF.toOuterMeasure_map_apply]
     exact disagreementBound
 
+/-- This coupling maps each first trace to one second trace. -/
+noncomputable def traceTransportCoupling
+    {FirstTrace SecondTrace : Type uSample}
+    (firstTraced : PMF (Bool × FirstTrace))
+    (transport : Bool × FirstTrace → Bool × SecondTrace) :
+    PMF ((Bool × FirstTrace) × (Bool × SecondTrace)) :=
+  firstTraced.map fun sample => (sample, transport sample)
+
+theorem traceTransportCoupling_fst
+    {FirstTrace SecondTrace : Type uSample}
+    (firstTraced : PMF (Bool × FirstTrace))
+    (transport : Bool × FirstTrace → Bool × SecondTrace) :
+    (traceTransportCoupling firstTraced transport).map Prod.fst = firstTraced := by
+  rw [traceTransportCoupling, PMF.map_comp]
+  simpa [Function.comp_def] using PMF.map_id firstTraced
+
+theorem traceTransportCoupling_snd
+    {FirstTrace SecondTrace : Type uSample}
+    (firstTraced : PMF (Bool × FirstTrace))
+    (transport : Bool × FirstTrace → Bool × SecondTrace) :
+    (traceTransportCoupling firstTraced transport).map Prod.snd =
+      firstTraced.map transport := by
+  simp [traceTransportCoupling, PMF.map_comp, Function.comp_def]
+
+theorem traceTransportCoupling_disagreement
+    {FirstTrace SecondTrace : Type uSample}
+    (firstTraced : PMF (Bool × FirstTrace))
+    (transport : Bool × FirstTrace → Bool × SecondTrace) :
+    (traceTransportCoupling firstTraced transport).toOuterMeasure
+        { sample | sample.1.1 ≠ sample.2.1 } =
+      firstTraced.toOuterMeasure
+        { sample | sample.1 ≠ (transport sample).1 } := by
+  rw [traceTransportCoupling, PMF.toOuterMeasure_map_apply]
+  rfl
+
+/-- A trace transport reduces the game bound to its Boolean change event. -/
+theorem advantage_le_of_traceTransport
+    {FirstTrace SecondTrace : Type uSample}
+    (firstTraced : PMF (Bool × FirstTrace))
+    (secondTraced : PMF (Bool × SecondTrace))
+    (first second : PMF Bool)
+    (transport : Bool × FirstTrace → Bool × SecondTrace)
+    (error : ENNReal)
+    (secondMap : firstTraced.map transport = secondTraced)
+    (firstErase : firstTraced.map Prod.fst = first)
+    (secondErase : secondTraced.map Prod.fst = second)
+    (errorFinite : error ≠ ⊤)
+    (changeBound : firstTraced.toOuterMeasure
+      { sample | sample.1 ≠ (transport sample).1 } ≤ error) :
+    advantage first second ≤ error.toReal := by
+  exact advantage_le_of_tracedCoupling firstTraced secondTraced first second
+    (traceTransportCoupling firstTraced transport) error
+    (traceTransportCoupling_fst firstTraced transport)
+    ((traceTransportCoupling_snd firstTraced transport).trans secondMap)
+    firstErase secondErase errorFinite
+    (by simpa [traceTransportCoupling_disagreement] using changeBound)
+
 /-- This coupling runs two deterministic Boolean games on one common sample. -/
 noncomputable def deterministicBoolCoupling {Sample : Type uSample}
     (source : PMF Sample) (first second : Sample → Bool) : PMF (Bool × Bool) :=
@@ -439,6 +496,49 @@ theorem adaptiveAdvantage_le_of_tracedCoupling
       auxiliary)
     errorFinite disagreementBound
 
+/-- One trace transport and one change-event bound imply the adaptive game bound. -/
+theorem adaptiveAdvantage_le_of_traceTransport
+    {oracle : OracleSpec}
+    {Circuit Input Output Randomness Public EncodingKey Labels EvaluationOracle
+      Topology State : Type uSample} {Aux : Type uCPAAux}
+    (scheme : GarbledCircuit Circuit Input Output Randomness Public EncodingKey Labels
+      EvaluationOracle)
+    (topology : Circuit → Topology)
+    (simulator : Simulator Input Output Public Labels Topology State)
+    (randomTape : Nat → PMF Randomness)
+    (realOracle : OracleHandler oracle Randomness)
+    (idealOracle : OracleHandler oracle State)
+    (adversary : AdaptiveAdversary oracle Input Public Labels Aux)
+    (parameter : Nat) (circuit : Circuit) (auxiliary : Aux)
+    (transport :
+      Bool × Randomness × List (oracle.Query × Randomness) →
+        Bool × State × List (oracle.Query × State))
+    (error : ENNReal)
+    (secondMap :
+      (tracedRealGame scheme randomTape realOracle adversary parameter circuit auxiliary).map
+          transport =
+        tracedIdealGame scheme topology simulator idealOracle adversary parameter circuit
+          auxiliary)
+    (errorFinite : error ≠ ⊤)
+    (changeBound :
+      PMF.toOuterMeasure
+        (tracedRealGame scheme randomTape realOracle adversary parameter circuit auxiliary)
+        { sample | sample.1 ≠ (transport sample).1 } ≤ error) :
+    advantage
+      (realGame scheme randomTape realOracle adversary parameter circuit auxiliary)
+      (idealGame scheme topology simulator idealOracle adversary parameter circuit auxiliary) ≤
+        error.toReal := by
+  exact advantage_le_of_traceTransport
+    (tracedRealGame scheme randomTape realOracle adversary parameter circuit auxiliary)
+    (tracedIdealGame scheme topology simulator idealOracle adversary parameter circuit auxiliary)
+    (realGame scheme randomTape realOracle adversary parameter circuit auxiliary)
+    (idealGame scheme topology simulator idealOracle adversary parameter circuit auxiliary)
+    transport error secondMap
+    (tracedRealGame_erase scheme randomTape realOracle adversary parameter circuit auxiliary)
+    (tracedIdealGame_erase scheme topology simulator idealOracle adversary parameter circuit
+      auxiliary)
+    errorFinite changeBound
+
 /-- Traced couplings with concrete bounds imply the adaptive privacy property. -/
 theorem concreteAdaptivePrivacy_of_tracedCouplings
     {oracle : OracleSpec}
@@ -477,6 +577,59 @@ theorem concreteAdaptivePrivacy_of_tracedCouplings
     scheme topology simulator randomTape realOracle idealOracle adversary parameter
     (circuits parameter) (auxiliaries parameter) joint (error adversary parameter)
     firstMarginal secondMarginal (errorFinite adversary parameter) disagreementBound
+  unfold WorkPerAdvantage
+  exact (mul_le_mul_of_nonneg_right advantageBound (by positivity)).trans
+    (errorConcrete adversary parameter)
+
+/-- Trace transports with concrete bounds imply the adaptive privacy property. -/
+theorem concreteAdaptivePrivacy_of_traceTransports
+    {oracle : OracleSpec}
+    {Circuit Input Output Randomness Public EncodingKey Labels EvaluationOracle
+      Topology State : Type uSample} {Aux : Type uCPAAux}
+    (scheme : GarbledCircuit Circuit Input Output Randomness Public EncodingKey Labels
+      EvaluationOracle)
+    (topology : Circuit → Topology)
+    (simulator : Simulator Input Output Public Labels Topology State)
+    (randomTape : Nat → PMF Randomness)
+    (realOracle : OracleHandler oracle Randomness)
+    (idealOracle : OracleHandler oracle State)
+    (bits : Nat)
+    (error : AdaptiveAdversary oracle Input Public Labels Aux → Nat → ENNReal)
+    (errorFinite : ∀ adversary parameter, error adversary parameter ≠ ⊤)
+    (errorConcrete : ∀ adversary parameter,
+      WorkPerAdvantage bits (adversaryWork adversary parameter)
+        (error adversary parameter).toReal)
+    (transport : ∀
+      (_adversary : AdaptiveAdversary oracle Input Public Labels Aux)
+      (_circuit : Circuit) (_auxiliary : Aux) (_parameter : Nat),
+      Bool × Randomness × List (oracle.Query × Randomness) →
+        Bool × State × List (oracle.Query × State))
+    (secondMap : ∀
+      (adversary : AdaptiveAdversary oracle Input Public Labels Aux)
+      (circuit : Circuit) (auxiliary : Aux) (parameter : Nat),
+      (tracedRealGame scheme randomTape realOracle adversary parameter circuit auxiliary).map
+          (transport adversary circuit auxiliary parameter) =
+        tracedIdealGame scheme topology simulator idealOracle adversary parameter circuit
+          auxiliary)
+    (changeBound : ∀
+      (adversary : AdaptiveAdversary oracle Input Public Labels Aux)
+      (circuit : Circuit) (auxiliary : Aux) (parameter : Nat),
+      PMF.toOuterMeasure
+        (tracedRealGame scheme randomTape realOracle adversary parameter circuit auxiliary)
+          { sample |
+            sample.1 ≠ (transport adversary circuit auxiliary parameter sample).1 } ≤
+        error adversary parameter) :
+    ConcreteAdaptivePrivacy (Aux := Aux) scheme topology simulator randomTape realOracle
+      idealOracle bits := by
+  intro adversary circuits auxiliaries parameter
+  have advantageBound := adaptiveAdvantage_le_of_traceTransport
+    scheme topology simulator randomTape realOracle idealOracle adversary parameter
+    (circuits parameter) (auxiliaries parameter)
+    (transport adversary (circuits parameter) (auxiliaries parameter) parameter)
+    (error adversary parameter)
+    (secondMap adversary (circuits parameter) (auxiliaries parameter) parameter)
+    (errorFinite adversary parameter)
+    (changeBound adversary (circuits parameter) (auxiliaries parameter) parameter)
   unfold WorkPerAdvantage
   exact (mul_le_mul_of_nonneg_right advantageBound (by positivity)).trans
     (errorConcrete adversary parameter)

@@ -67,6 +67,10 @@ theorem hashLiftRoundingArithmeticHas100Bits :
 #print axioms ArgoMAC.Security.advantage_map_prod_le_disagreementMass
 #print axioms ArgoMAC.Security.advantage_le_of_coupling
 #print axioms ArgoMAC.Security.advantage_le_of_tracedCoupling
+#print axioms ArgoMAC.Security.traceTransportCoupling_fst
+#print axioms ArgoMAC.Security.traceTransportCoupling_snd
+#print axioms ArgoMAC.Security.traceTransportCoupling_disagreement
+#print axioms ArgoMAC.Security.advantage_le_of_traceTransport
 #print axioms ArgoMAC.Security.deterministicBoolCoupling_fst
 #print axioms ArgoMAC.Security.deterministicBoolCoupling_snd
 #print axioms ArgoMAC.Security.deterministicBoolCoupling_disagreement
@@ -77,7 +81,9 @@ theorem hashLiftRoundingArithmeticHas100Bits :
 #print axioms ArgoMAC.Security.tracedIdealGame_erase
 #print axioms ArgoMAC.Security.tracedIdealGame_overBudget_mass
 #print axioms ArgoMAC.Security.adaptiveAdvantage_le_of_tracedCoupling
+#print axioms ArgoMAC.Security.adaptiveAdvantage_le_of_traceTransport
 #print axioms ArgoMAC.Security.concreteAdaptivePrivacy_of_tracedCouplings
+#print axioms ArgoMAC.Security.concreteAdaptivePrivacy_of_traceTransports
 #print axioms ArgoMAC.Security.pointLayerUsesLinkedInputKey
 #print axioms ArgoMAC.Security.recordFixed_preservesInvariant
 #print axioms ArgoMAC.Security.recordEnc_preservesInvariant
