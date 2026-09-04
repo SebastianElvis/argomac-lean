@@ -247,22 +247,24 @@ Jobs borrow output keys.
 They do not copy those secret keys into a second vector.
 Fixed Boolean arrays replace heap-based coefficient index sets.
 Each window set reuses its SHA-256 bucket and role prefixes while it derives 15 fixed AES keys.
-The 384-bit hash-to-field reducer uses its fixed 48-byte layout and avoids generic slice loops.
+The 384-bit hash-to-field reducer reads the three AES blocks directly.
+It avoids generic slice loops and a 48-byte staging copy.
 The 256-bit field pad uses four explicit little-endian limb XOR operations.
 Tests compare one-worker and four-worker tables.
 A second test compares all 273 allocated child nonces with the serial schedule.
 
 On the same Apple M5, the ARMv8 AES benchmarks used 100 Criterion samples.
 The incomplete 92-row serial baseline estimate was 15.934 ms.
-The complete 91-row, 10-worker row mean is 3.390 ms.
-Its 95 percent interval is 3.371 to 3.410 ms.
-The complete row stage is 4.70 times faster than the serial baseline.
-Direct field-limb XOR lowers the adjacent row mean by 8.7 percent.
+The complete 91-row, 10-worker row mean is 3.351 ms.
+Its 95 percent interval is 3.334 to 3.369 ms.
+The complete row stage is 4.75 times faster than the serial baseline.
+Direct field-limb XOR lowered its adjacent row mean by 8.7 percent.
+Direct hash-block reduction then lowered its adjacent mean by 4.5 percent.
 
-The protocol \texttt{encode} mean is 68.830 ms.
-Its 95 percent interval is 68.752 to 68.919 ms.
+The protocol \texttt{encode} mean is 68.809 ms.
+Its 95 percent interval is 68.722 to 68.904 ms.
 The comparable baseline is 81.309 ms.
-The complete implementation reduces this time by 15.3 percent.
+The complete implementation reduces this time by 15.4 percent.
 Its HMAC table has 9,668,659 bytes.
 This is 2,970,240 bytes larger than the incomplete 91-row table.
 
