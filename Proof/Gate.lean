@@ -505,6 +505,76 @@ def programGateSchedule (state : SimulatorState)
     (schedule : List GateDirective) : SimulatorState :=
   schedule.foldl (fun current directive => directive.apply current) state
 
+@[simp] theorem programFixedSlot_encOracle (state : SimulatorState)
+    (location : Pipeline.FixedKeyLocation) (window : Nat)
+    (slot : Pipeline.FixedKeySlot) (label block : Block) :
+    (programFixedSlot state location window slot label block).encOracle =
+      state.encOracle := by
+  unfold programFixedSlot tryProgramFixed
+  split <;> rfl
+
+@[simp] theorem programFixedSlot_hashOracle (state : SimulatorState)
+    (location : Pipeline.FixedKeyLocation) (window : Nat)
+    (slot : Pipeline.FixedKeySlot) (label block : Block) :
+    (programFixedSlot state location window slot label block).hashOracle =
+      state.hashOracle := by
+  unfold programFixedSlot tryProgramFixed
+  split <;> rfl
+
+@[simp] theorem programHashGate_encOracle (state : SimulatorState)
+    (location : Pipeline.FixedKeyLocation) (window : Nat)
+    (label : Block) (blocks : Fin 3 → Block) :
+    (programHashGate state location window label blocks).encOracle = state.encOracle := by
+  simp [programHashGate]
+
+@[simp] theorem programHashGate_hashOracle (state : SimulatorState)
+    (location : Pipeline.FixedKeyLocation) (window : Nat)
+    (label : Block) (blocks : Fin 3 → Block) :
+    (programHashGate state location window label blocks).hashOracle = state.hashOracle := by
+  simp [programHashGate]
+
+@[simp] theorem programPadGate_encOracle (state : SimulatorState)
+    (location : Pipeline.FixedKeyLocation) (window : Nat)
+    (label : Block) (blocks : Fin 2 → Block) :
+    (programPadGate state location window label blocks).encOracle = state.encOracle := by
+  simp [programPadGate]
+
+@[simp] theorem programPadGate_hashOracle (state : SimulatorState)
+    (location : Pipeline.FixedKeyLocation) (window : Nat)
+    (label : Block) (blocks : Fin 2 → Block) :
+    (programPadGate state location window label blocks).hashOracle = state.hashOracle := by
+  simp [programPadGate]
+
+@[simp] theorem GateDirective.apply_encOracle (directive : GateDirective)
+    (state : SimulatorState) :
+    (directive.apply state).encOracle = state.encOracle := by
+  rcases directive with ⟨location, window, bit, label, table, target, lift⟩
+  cases bit <;> simp [GateDirective.apply, programGateForTarget, programGate]
+
+@[simp] theorem GateDirective.apply_hashOracle (directive : GateDirective)
+    (state : SimulatorState) :
+    (directive.apply state).hashOracle = state.hashOracle := by
+  rcases directive with ⟨location, window, bit, label, table, target, lift⟩
+  cases bit <;> simp [GateDirective.apply, programGateForTarget, programGate]
+
+@[simp] theorem programGateSchedule_encOracle (state : SimulatorState)
+    (schedule : List GateDirective) :
+    (programGateSchedule state schedule).encOracle = state.encOracle := by
+  induction schedule generalizing state with
+  | nil => rfl
+  | cons directive remaining inductionHypothesis =>
+      exact (inductionHypothesis (directive.apply state)).trans
+        (directive.apply_encOracle state)
+
+@[simp] theorem programGateSchedule_hashOracle (state : SimulatorState)
+    (schedule : List GateDirective) :
+    (programGateSchedule state schedule).hashOracle = state.hashOracle := by
+  induction schedule generalizing state with
+  | nil => rfl
+  | cons directive remaining inductionHypothesis =>
+      exact (inductionHypothesis (directive.apply state)).trans
+        (directive.apply_hashOracle state)
+
 /-- This operation prepends each selected gate record in schedule order. -/
 def gateScheduleProgramRecords
     (initial : List (PermutationRecord Pipeline.FixedKeyIndex Block))
@@ -971,6 +1041,36 @@ def pipelineGateSchedule (curve : CurveGateRequest) (points : PointGateRequests)
     List GateDirective :=
   curve.schedule input curveInputMac ++ pointGateSchedule points input pointInputMac
 
+/-- This value applies the exact EncPRF link after the curve layer. -/
+def linkedPointInputMac (state : SimulatorState) (curve : CurveGateRequest)
+    (input : AffineInput) (inputMac : InputMac) : InputMac :=
+  EncPRF.transformMac state.encOracle
+    (EncPRF.whiteningKeys state.hashOracle (curve.result input))
+    (BitInput.ofAffine input) inputMac
+
+/-- This schedule uses one input MAC and the exact EncPRF layer link. -/
+def linkedPipelineGateSchedule (state : SimulatorState)
+    (curve : CurveGateRequest) (points : PointGateRequests)
+    (input : AffineInput) (inputMac : InputMac) : List GateDirective :=
+  pipelineGateSchedule curve points input inputMac
+    (linkedPointInputMac state curve input inputMac)
+
+@[simp] theorem linkedPointInputMac_programGateSchedule
+    (state : SimulatorState) (schedule : List GateDirective)
+    (curve : CurveGateRequest) (input : AffineInput) (inputMac : InputMac) :
+    linkedPointInputMac (programGateSchedule state schedule) curve input inputMac =
+      linkedPointInputMac state curve input inputMac := by
+  simp [linkedPointInputMac]
+
+@[simp] theorem linkedPipelineGateSchedule_programGateSchedule
+    (state : SimulatorState) (schedule : List GateDirective)
+    (curve : CurveGateRequest) (points : PointGateRequests)
+    (input : AffineInput) (inputMac : InputMac) :
+    linkedPipelineGateSchedule (programGateSchedule state schedule)
+        curve points input inputMac =
+      linkedPipelineGateSchedule state curve points input inputMac := by
+  simp [linkedPipelineGateSchedule]
+
 theorem pipelineGateSchedule_length (curve : CurveGateRequest)
     (points : PointGateRequests) (input : AffineInput)
     (curveInputMac pointInputMac : InputMac) :
@@ -989,6 +1089,14 @@ theorem pipelineGateSchedule_length_value (curve : CurveGateRequest)
       301752 := by
   rw [pipelineGateSchedule_length]
   decide
+
+theorem linkedPipelineGateSchedule_length (state : SimulatorState)
+    (curve : CurveGateRequest) (points : PointGateRequests)
+    (input : AffineInput) (inputMac : InputMac) :
+    (linkedPipelineGateSchedule state curve points input inputMac).length =
+      301752 := by
+  exact pipelineGateSchedule_length_value curve points input inputMac
+    (linkedPointInputMac state curve input inputMac)
 
 theorem programFixedSlot_fixedTranscript_of_fresh (state : SimulatorState)
     (location : Pipeline.FixedKeyLocation) (window : Nat)
@@ -1724,6 +1832,41 @@ theorem pointGateSchedule_evaluate (requests : PointGateRequests)
   have rowValue := (requests.get output).evaluate state output input inputMac rowSatisfied
   simpa [FieldMacToECMac.evaluateHomogeneous, pointGateTable,
     Pipeline.pointOracles, pointGateResults, output] using rowValue
+
+/-- A satisfied linked schedule returns all requested pipeline values. -/
+theorem linkedPipelineGateSchedule_evaluate [FieldCertificate]
+    (curve : CurveGateRequest)
+    (points : PointGateRequests) (state : SimulatorState)
+    (input : AffineInput) (inputMac : InputMac) (point : Point)
+    (decoded : decodePoint input = some point)
+    (satisfied : GateScheduleSatisfied state
+      (linkedPipelineGateSchedule state curve points input inputMac)) :
+    Pipeline.evaluate state.fixedOracle state.encOracle state.hashOracle
+        { curve := curve.table, pointMAC := pointGateTable points }
+        (BitInput.ofAffine input) inputMac =
+      some ({ point := input, pointMacs := pointGateResults points input } :
+        FieldMacToECMac.Result) := by
+  have curveSatisfied : GateScheduleSatisfied state
+      (curve.schedule input inputMac) := by
+    intro directive member
+    apply satisfied directive
+    simp [linkedPipelineGateSchedule, pipelineGateSchedule, member]
+  have pointSatisfied : GateScheduleSatisfied state
+      (pointGateSchedule points input
+        (linkedPointInputMac state curve input inputMac)) := by
+    intro directive member
+    apply satisfied directive
+    simp [linkedPipelineGateSchedule, pipelineGateSchedule, member]
+  have curveValue := curve.evaluate state input inputMac curveSatisfied
+  have pointValue := pointGateSchedule_evaluate points state input
+    (linkedPointInputMac state curve input inputMac) pointSatisfied
+  simp only [Pipeline.evaluate, BitInput.toAffineOfAffine, decoded]
+  rw [curveValue]
+  change some (FieldMacToECMac.evaluate (pointGateTable points)
+    (Pipeline.pointOracles state.fixedOracle) input
+    (linkedPointInputMac state curve input inputMac)) = _
+  simp only [FieldMacToECMac.evaluate]
+  rw [pointValue]
 
 /-- The final state satisfies every target in one fresh schedule. -/
 theorem programGateSchedule_satisfies_of_fresh

@@ -163,6 +163,11 @@ theorem hashLiftRoundingArithmeticHas100Bits :
 #print axioms ArgoMAC.Security.pointGateSchedule_length
 #print axioms ArgoMAC.Security.pipelineGateSchedule_length
 #print axioms ArgoMAC.Security.pipelineGateSchedule_length_value
+#print axioms ArgoMAC.Security.programGateSchedule_encOracle
+#print axioms ArgoMAC.Security.programGateSchedule_hashOracle
+#print axioms ArgoMAC.Security.linkedPointInputMac_programGateSchedule
+#print axioms ArgoMAC.Security.linkedPipelineGateSchedule_programGateSchedule
+#print axioms ArgoMAC.Security.linkedPipelineGateSchedule_length
 #print axioms ArgoMAC.Security.GateDirective.apply_preservesInvariant
 #print axioms ArgoMAC.Security.GateDirective.apply_bad_of_bad
 #print axioms ArgoMAC.Security.programGateSchedule_bad_of_bad
@@ -185,6 +190,7 @@ theorem hashLiftRoundingArithmeticHas100Bits :
 #print axioms ArgoMAC.Security.CurveGateRequest.evaluate
 #print axioms ArgoMAC.Security.BiquadraticRowRequest.evaluate
 #print axioms ArgoMAC.Security.pointGateSchedule_evaluate
+#print axioms ArgoMAC.Security.linkedPipelineGateSchedule_evaluate
 #print axioms ArgoMAC.Security.programDigitGateSchedule_evaluateValue
 #print axioms ArgoMAC.Security.programBiquadraticXGateSchedule_evaluate
 #print axioms ArgoMAC.Security.programBiquadraticRowGateSchedule_evaluate
