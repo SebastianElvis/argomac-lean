@@ -42,6 +42,81 @@ def OracleProgramSafe
   | _, .sample _ next, state =>
       ∀ value, OracleProgramSafe handler safe (next value) state
 
+/-- A trace records each reached query and its state. -/
+inductive OracleProgramTrace
+    {oracle : OracleSpec.{uQuery, uAnswer}} {Result : Type uResult}
+    {State : Type uStateOne}
+    (handler : OracleHandler oracle State) :
+    {budget : Nat} → OracleProgram oracle Result budget → State →
+      List (oracle.Query × State) → Prop
+  | pure {budget : Nat} (result : PMF Result) (state : State) :
+      OracleProgramTrace handler (.pure (budget := budget) result) state []
+  | query {budget : Nat} (request : oracle.Query)
+      (next : oracle.Answer request → OracleProgram oracle Result budget)
+      (state : State) (trace : List (oracle.Query × State))
+      (tail : OracleProgramTrace handler
+        (next (handler request state).1) (handler request state).2 trace) :
+      OracleProgramTrace handler (.query request next) state
+        ((request, state) :: trace)
+  | sample {budget : Nat} {Sample : Type uResult} (distribution : PMF Sample)
+      (next : Sample → OracleProgram oracle Result budget)
+      (state : State) (value : Sample) (trace : List (oracle.Query × State))
+      (tail : OracleProgramTrace handler (next value) state trace) :
+      OracleProgramTrace handler (.sample distribution next) state trace
+
+/-- Every reached trace stays within the program's indexed query budget. -/
+theorem OracleProgramTrace.length_le
+    {oracle : OracleSpec.{uQuery, uAnswer}} {Result : Type uResult}
+    {State : Type uStateOne} (handler : OracleHandler oracle State)
+    {budget : Nat} {program : OracleProgram oracle Result budget}
+    {state : State} {trace : List (oracle.Query × State)}
+    (reached : OracleProgramTrace handler program state trace) :
+    trace.length ≤ budget := by
+  induction reached with
+  | pure => simp
+  | query request next state trace tail inductionHypothesis =>
+      simpa [Nat.add_comm] using Nat.succ_le_succ inductionHypothesis
+  | sample distribution next state value trace tail inductionHypothesis =>
+      exact inductionHypothesis
+
+/-- A safe program marks every step of each reached trace as safe. -/
+theorem OracleProgramTrace.all_safe
+    {oracle : OracleSpec.{uQuery, uAnswer}} {Result : Type uResult}
+    {State : Type uStateOne}
+    (handler : OracleHandler oracle State)
+    (safe : (query : oracle.Query) → State → Prop)
+    {budget : Nat} {program : OracleProgram oracle Result budget}
+    {state : State} {trace : List (oracle.Query × State)}
+    (programSafe : OracleProgramSafe handler safe program state)
+    (reached : OracleProgramTrace handler program state trace) :
+    ∀ step ∈ trace, safe step.1 step.2 := by
+  induction reached with
+  | pure => simp
+  | query request next state trace tail inductionHypothesis =>
+      intro step member
+      simp only [List.mem_cons] at member
+      rcases member with same | member
+      · simpa [same] using programSafe.1
+      · exact inductionHypothesis programSafe.2 step member
+  | sample distribution next state value trace tail inductionHypothesis =>
+      exact inductionHypothesis (programSafe value)
+
+/-- Two reached phases use no more queries than their two indexed budgets. -/
+theorem OracleProgramTrace.append_length_le
+    {oracle : OracleSpec.{uQuery, uAnswer}}
+    {FirstResult SecondResult : Type uResult} {State : Type uStateOne}
+    (handler : OracleHandler oracle State)
+    {firstBudget secondBudget : Nat}
+    {first : OracleProgram oracle FirstResult firstBudget}
+    {second : OracleProgram oracle SecondResult secondBudget}
+    {firstState secondState : State}
+    {firstTrace secondTrace : List (oracle.Query × State)}
+    (firstReached : OracleProgramTrace handler first firstState firstTrace)
+    (secondReached : OracleProgramTrace handler second secondState secondTrace) :
+    (firstTrace ++ secondTrace).length ≤ firstBudget + secondBudget := by
+  rw [List.length_append]
+  exact Nat.add_le_add firstReached.length_le secondReached.length_le
+
 /-- A path-safe handler equivalence lifts through one oracle program. -/
 theorem oracleProgram_run_stateEquiv_of_safe
     {oracle : OracleSpec.{uQuery, uAnswer}} {Result : Type uResult}

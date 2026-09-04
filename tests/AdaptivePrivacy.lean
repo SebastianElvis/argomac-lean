@@ -46,6 +46,10 @@ theorem hashLiftRoundingArithmeticHas100Bits :
 #print axioms ArgoMAC.Security.uniformBlockFinsetMass_le
 #print axioms ArgoMAC.Security.uniformBlockTwoPointEvent_le
 #print axioms ArgoMAC.Security.uniformBlockFinsetMass_sum_le
+#print axioms ArgoMAC.Security.OracleProgramTrace.length_le
+#print axioms ArgoMAC.Security.OracleProgramTrace.all_safe
+#print axioms ArgoMAC.Security.OracleProgramTrace.append_length_le
+#print axioms ArgoMAC.Security.oracleProgramTrace_collisionScheduleMass_le
 #print axioms ArgoMAC.Security.advantage_map_prod_le_disagreement
 #print axioms ArgoMAC.Security.boolDisagreement_mass
 #print axioms ArgoMAC.Security.advantage_map_prod_le_disagreementMass

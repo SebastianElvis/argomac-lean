@@ -6,6 +6,7 @@ The paper source is https://github.com/babylonlabs-io/BaBe.latex/tree/e2dcf4d540
 
 import Construction.Garbling
 import Cryptography.Assumptions
+import Proof.Simulator
 
 namespace Kriterion.ArgoMAC.Security
 
@@ -14,6 +15,7 @@ open Cryptography
 open Cryptography.Assumptions
 
 universe uKey uCounter uCTPRFIndex uEncPRFIndex uHashInput uCPAAux uSample
+  uQuery uAnswer uResult uState
 
 /-- These are the standard assumptions in `thm:gc_opt_final`. -/
 abbrev BaBeAssumptions
@@ -100,6 +102,38 @@ theorem uniformBlockFinsetMass_sum_le (forbidden : List (Finset Block)) (count :
         _ = ((tail.length + 1) * count : ENNReal) *
               Inv.inv (↑(2 ^ blockBits : Nat) : ENNReal) := by
           ring
+
+/-- A reached trace has at most one local collision term for each budget unit. -/
+theorem oracleProgramTrace_collisionScheduleMass_le
+    {oracle : OracleSpec.{uQuery, uAnswer}} {Result : Type uResult}
+    {State : Type uState}
+    (handler : OracleHandler oracle State)
+    {budget : Nat} {program : OracleProgram oracle Result budget}
+    {state : State} {trace : List (oracle.Query × State)}
+    (reached : OracleProgramTrace handler program state trace)
+    (forbidden : oracle.Query × State → Finset Block) (count : Nat)
+    (cardBound : ∀ step ∈ trace, (forbidden step).card ≤ count) :
+    ((trace.map forbidden).map fun current =>
+      (PMF.uniformOfFintype Block).toOuterMeasure (current : Set Block)).sum ≤
+      (budget * count : ENNReal) *
+        Inv.inv (↑(2 ^ blockBits : Nat) : ENNReal) := by
+  have scheduleBound := uniformBlockFinsetMass_sum_le
+    (trace.map forbidden) count (by
+      intro current member
+      rcases List.mem_map.mp member with ⟨step, stepMember, rfl⟩
+      exact cardBound step stepMember)
+  have countBound : trace.length * count ≤ budget * count :=
+    Nat.mul_le_mul_right count reached.length_le
+  calc
+    ((trace.map forbidden).map fun current =>
+        (PMF.uniformOfFintype Block).toOuterMeasure (current : Set Block)).sum ≤
+      (trace.length * count : ENNReal) *
+        Inv.inv (↑(2 ^ blockBits : Nat) : ENNReal) := by
+      simpa using scheduleBound
+    _ ≤ (budget * count : ENNReal) *
+        Inv.inv (↑(2 ^ blockBits : Nat) : ENNReal) := by
+      apply mul_le_mul_right'
+      exact_mod_cast countBound
 
 /-- A Boolean coupling bounds advantage by its two disagreement outcomes. -/
 theorem advantage_map_prod_le_disagreement (joint : PMF (Bool × Bool)) :
