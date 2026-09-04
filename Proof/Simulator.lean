@@ -11,6 +11,7 @@ namespace Kriterion.ArgoMAC.Security
 open BN254 Cryptography
 
 universe uSample uDomain uRange uIndex uSlot
+  uQuery uAnswer uResult uStateOne uStateTwo
 
 /-- An equivalence preserves the uniform distribution on one finite type. -/
 theorem map_uniformOfFintype_equiv
@@ -26,6 +27,40 @@ theorem map_uniformOfFintype_equiv
     eq_comm]
   exact (tsum_ite_eq (equivalence.symm output)
     (Inv.inv (Fintype.card Sample : ENNReal))).symm
+
+/-- A handler equivalence lifts through every oracle program. -/
+theorem oracleProgram_run_stateEquiv
+    {oracle : OracleSpec.{uQuery, uAnswer}} {Result : Type uResult}
+    {StateOne : Type uStateOne} {StateTwo : Type uStateTwo}
+    (handlerOne : OracleHandler oracle StateOne)
+    (handlerTwo : OracleHandler oracle StateTwo)
+    (stateEquiv : StateOne ≃ StateTwo)
+    (handlerEquiv : ∀ query state,
+      (handlerOne query state).1 =
+          (handlerTwo query (stateEquiv state)).1 ∧
+        stateEquiv (handlerOne query state).2 =
+          (handlerTwo query (stateEquiv state)).2)
+    {budget : Nat} (program : OracleProgram oracle Result budget)
+    (state : StateOne) :
+    (program.run handlerOne state).map
+        (fun output => (output.1, stateEquiv output.2)) =
+      program.run handlerTwo (stateEquiv state) := by
+  induction program generalizing state with
+  | pure result =>
+      rw [OracleProgram.run, OracleProgram.run, PMF.map_comp]
+      congr 1
+  | query request next inductionHypothesis =>
+      simp only [OracleProgram.run]
+      have related := handlerEquiv request state
+      rw [show (handlerOne request state).1 =
+        (handlerTwo request (stateEquiv state)).1 from related.1]
+      rw [inductionHypothesis]
+      rw [related.2]
+  | sample distribution next inductionHypothesis =>
+      simp only [OracleProgram.run, PMF.map_bind]
+      congr 1
+      funext sample
+      exact inductionHypothesis sample state
 
 /-- This value identifies one layer in the composed circuit. -/
 inductive Layer
@@ -289,6 +324,77 @@ theorem map_uniform_updateProgramPair
   map_uniformOfFintype_equiv
     (updateProgramEquiv (Range := Range) input)
 
+/-- A different function query has the same answer after programming. -/
+theorem updateProgramPair_apply_of_ne
+    {Domain : Type uDomain} {Range : Type uRange} [DecidableEq Domain]
+    (oracle : Domain → Range) (input : Domain) (target : Range)
+    (current : Domain) (different : current ≠ input) :
+    (updateProgramPair input (oracle, target)).1 current = oracle current := by
+  simp [updateProgramPair, different]
+
+/-- This type contains one fresh hash target that matches a fixed transcript. -/
+def FreshHashProgrammingSample (history : List HashRecord)
+    (input : BaseField) :=
+  { sample : EncPRF.HashOracle × (Block × Block) //
+    HashTranscriptMatches sample.1 history ∧ FreshHashInput history input }
+
+/-- A matching hash oracle and one fresh input give a nonempty fiber. -/
+theorem freshHashProgrammingSample_nonempty (history : List HashRecord)
+    (input : BaseField) (oracle : EncPRF.HashOracle)
+    (matchesTranscript : HashTranscriptMatches oracle history)
+    (fresh : FreshHashInput history input) :
+    Nonempty (FreshHashProgrammingSample history input) :=
+  ⟨⟨(oracle, (0, 0)), matchesTranscript, fresh⟩⟩
+
+noncomputable instance freshHashProgrammingSampleFintype
+    (history : List HashRecord) (input : BaseField) :
+    Fintype (FreshHashProgrammingSample history input) := by
+  classical
+  exact Fintype.subtype
+    (Finset.univ.filter fun sample : EncPRF.HashOracle × (Block × Block) =>
+      HashTranscriptMatches sample.1 history ∧ FreshHashInput history input) (by simp)
+
+/-- This map swaps one fresh hash target inside a fixed transcript fiber. -/
+def swapFreshHashProgrammingSample (history : List HashRecord)
+    (input : BaseField) :
+    FreshHashProgrammingSample history input →
+      FreshHashProgrammingSample history input := by
+  intro sample
+  refine ⟨updateProgramPair input sample.1, ?_⟩
+  constructor
+  · intro record member
+    change Function.update sample.1.1 input sample.1.2 record.input = record.output
+    rw [Function.update_of_ne (sample.2.2 record member)]
+    exact sample.2.1 record member
+  · exact sample.2.2
+
+/-- The fresh hash swap is an involution inside its transcript fiber. -/
+theorem swapFreshHashProgrammingSample_involutive
+    (history : List HashRecord) (input : BaseField) :
+    Function.Involutive (swapFreshHashProgrammingSample history input) := by
+  intro sample
+  apply Subtype.ext
+  exact updateProgramPair_involutive input sample.1
+
+/-- This equivalence contains the fresh hash swap in one transcript fiber. -/
+noncomputable def swapFreshHashProgrammingSampleEquiv
+    (history : List HashRecord) (input : BaseField) :
+    FreshHashProgrammingSample history input ≃
+      FreshHashProgrammingSample history input :=
+  (swapFreshHashProgrammingSample_involutive history input).toPerm
+
+/-- Fresh hash programming preserves a uniform transcript fiber exactly. -/
+theorem map_uniform_swapFreshHashProgrammingSample
+    (history : List HashRecord) (input : BaseField)
+    [Nonempty (FreshHashProgrammingSample history input)] :
+    (PMF.uniformOfFintype
+      (FreshHashProgrammingSample history input)).map
+        (swapFreshHashProgrammingSample history input) =
+      PMF.uniformOfFintype
+        (FreshHashProgrammingSample history input) :=
+  map_uniformOfFintype_equiv
+    (swapFreshHashProgrammingSampleEquiv history input)
+
 /-- Fresh programming preserves one prior permutation pair. -/
 theorem programPermutation_preserves [DecidableEq Index]
     (oracle : PermutationOracle Index Block) (index : Index) (input output : Block)
@@ -307,6 +413,46 @@ theorem programPermutation_preserves [DecidableEq Index]
     exact Equiv.swap_apply_of_ne_of_ne differentImage different.2
   · simp [programPermutation, sameIndex, recordMatches]
 
+/-- A fresh forward query has the same answer after swap programming. -/
+theorem programPermutation_forward_eq_of_fresh [DecidableEq Index]
+    (oracle : PermutationOracle Index Block) (index : Index)
+    (input target : Block) (current : Index) (domain : Block)
+    (fresh : current = index →
+      domain ≠ input ∧ oracle.permutation current domain ≠ target) :
+    (programPermutation oracle index input target).permutation current domain =
+      oracle.permutation current domain := by
+  exact programPermutation_preserves oracle index input target
+    (PermutationRecord.mk .forward .adversary current domain
+      (oracle.permutation current domain)) rfl fresh
+
+/-- A fresh inverse query has the same answer after swap programming. -/
+theorem programPermutation_inverse_eq_of_fresh [DecidableEq Index]
+    (oracle : PermutationOracle Index Block) (index : Index)
+    (input target : Block) (current : Index) (range : Block)
+    (fresh : current = index →
+      range ≠ oracle.permutation current input ∧ range ≠ target) :
+    ((programPermutation oracle index input target).permutation current).symm range =
+      (oracle.permutation current).symm range := by
+  let domain := (oracle.permutation current).symm range
+  have domainFresh : current = index → domain ≠ input ∧ range ≠ target := by
+    intro sameIndex
+    have freshAtIndex := fresh sameIndex
+    constructor
+    · intro sameDomain
+      apply freshAtIndex.1
+      calc
+        range = oracle.permutation current domain :=
+          (oracle.permutation current).apply_symm_apply range |>.symm
+        _ = oracle.permutation current input := congrArg _ sameDomain
+    · exact freshAtIndex.2
+  have preserved :
+      (programPermutation oracle index input target).permutation current domain = range :=
+    programPermutation_preserves oracle index input target
+      (PermutationRecord.mk .inverse .adversary current domain range)
+      (Equiv.apply_symm_apply (oracle.permutation current) range) domainFresh
+  apply (programPermutation oracle index input target).permutation current |>.injective
+  rw [Equiv.apply_symm_apply, preserved]
+
 /-- This type contains one fresh programming pair that matches a fixed transcript. -/
 def FreshProgrammingSample {Index : Type uIndex} [DecidableEq Index]
     (history : List (PermutationRecord Index Block))
@@ -314,6 +460,25 @@ def FreshProgrammingSample {Index : Type uIndex} [DecidableEq Index]
   { sample : PermutationOracle Index Block × Block //
     PermutationTranscriptMatches sample.1 history ∧
       FreshPermutationPair history index input sample.2 }
+
+/-- A matching oracle and one fresh domain give a nonempty fiber. -/
+theorem freshProgrammingSample_nonempty
+    {Index : Type uIndex} [DecidableEq Index]
+    (history : List (PermutationRecord Index Block))
+    (index : Index) (input : Block) (oracle : PermutationOracle Index Block)
+    (matchesTranscript : PermutationTranscriptMatches oracle history)
+    (freshDomain : ∀ record ∈ history, record.index = index →
+      record.domain ≠ input) :
+    Nonempty (FreshProgrammingSample history index input) := by
+  refine ⟨⟨(oracle, oracle.permutation index input), matchesTranscript, ?_⟩⟩
+  intro record member sameIndex
+  constructor
+  · exact freshDomain record member sameIndex
+  · intro sameRange
+    apply freshDomain record member sameIndex
+    apply (oracle.permutation record.index).injective
+    rw [matchesTranscript record member]
+    simpa [sameIndex] using sameRange
 
 noncomputable instance freshProgrammingSampleFintype
     {Index : Type uIndex} [Fintype Index] [DecidableEq Index]
