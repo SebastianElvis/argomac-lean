@@ -117,6 +117,100 @@ theorem OracleProgramTrace.append_length_le
   rw [List.length_append]
   exact Nat.add_le_add firstReached.length_le secondReached.length_le
 
+/-- This interpreter adds the reached query trace to each program output. -/
+noncomputable def runOracleProgramWithTrace
+    {oracle : OracleSpec.{uQuery, uAnswer}} {Result : Type uResult}
+    {State : Type uStateOne}
+    (handler : OracleHandler oracle State) :
+    {budget : Nat} → OracleProgram oracle Result budget → State →
+      PMF (Result × State × List (oracle.Query × State))
+  | _, .pure result, state =>
+      result.map fun value => (value, state, [])
+  | _, .query request next, state =>
+      let answered := handler request state
+      (runOracleProgramWithTrace handler (next answered.1) answered.2).map
+        fun output => (output.1, output.2.1, (request, state) :: output.2.2)
+  | _, .sample distribution next, state =>
+      distribution.bind fun value => runOracleProgramWithTrace handler (next value) state
+
+/-- Erasing a trace gives the original program distribution. -/
+theorem runOracleProgramWithTrace_erase
+    {oracle : OracleSpec.{uQuery, uAnswer}} {Result : Type uResult}
+    {State : Type uStateOne} (handler : OracleHandler oracle State)
+    {budget : Nat} (program : OracleProgram oracle Result budget) (state : State) :
+    (runOracleProgramWithTrace handler program state).map
+        (fun output => (output.1, output.2.1)) =
+      program.run handler state := by
+  induction program generalizing state with
+  | pure result =>
+      rw [runOracleProgramWithTrace, OracleProgram.run, PMF.map_comp]
+      rfl
+  | query request next inductionHypothesis =>
+      simp only [runOracleProgramWithTrace, OracleProgram.run, PMF.map_comp]
+      change (runOracleProgramWithTrace handler
+          (next (handler request state).1) (handler request state).2).map
+          (fun output => (output.1, output.2.1)) =
+        (next (handler request state).1).run handler (handler request state).2
+      exact inductionHypothesis _ _
+  | sample distribution next inductionHypothesis =>
+      simp only [runOracleProgramWithTrace, OracleProgram.run, PMF.map_bind]
+      congr 1
+      funext value
+      exact inductionHypothesis value state
+
+/-- Every output in the traced distribution has a valid reached trace. -/
+theorem runOracleProgramWithTrace_reached
+    {oracle : OracleSpec.{uQuery, uAnswer}} {Result : Type uResult}
+    {State : Type uStateOne} (handler : OracleHandler oracle State)
+    {budget : Nat} (program : OracleProgram oracle Result budget) (state : State)
+    (output : Result × State × List (oracle.Query × State))
+    (member : output ∈ (runOracleProgramWithTrace handler program state).support) :
+    OracleProgramTrace handler program state output.2.2 := by
+  induction program generalizing state output with
+  | pure result =>
+      simp only [runOracleProgramWithTrace, PMF.mem_support_map_iff] at member
+      rcases member with ⟨value, _, rfl⟩
+      exact .pure result state
+  | query request next inductionHypothesis =>
+      simp only [runOracleProgramWithTrace, PMF.mem_support_map_iff] at member
+      rcases member with ⟨tailOutput, tailMember, rfl⟩
+      exact .query request next state tailOutput.2.2
+        (inductionHypothesis _ _ tailOutput tailMember)
+  | sample distribution next inductionHypothesis =>
+      simp only [runOracleProgramWithTrace, PMF.mem_support_bind_iff] at member
+      rcases member with ⟨value, _, tailMember⟩
+      exact .sample distribution next state value output.2.2
+        (inductionHypothesis value state output tailMember)
+
+/-- Every output in the traced distribution stays within the query budget. -/
+theorem runOracleProgramWithTrace_length_le
+    {oracle : OracleSpec.{uQuery, uAnswer}} {Result : Type uResult}
+    {State : Type uStateOne} (handler : OracleHandler oracle State)
+    {budget : Nat} (program : OracleProgram oracle Result budget) (state : State)
+    (output : Result × State × List (oracle.Query × State))
+    (member : output ∈ (runOracleProgramWithTrace handler program state).support) :
+    output.2.2.length ≤ budget :=
+  (runOracleProgramWithTrace_reached handler program state output member).length_le
+
+/-- The traced distribution gives zero mass to traces above the query budget. -/
+theorem runOracleProgramWithTrace_overBudget_mass
+    {oracle : OracleSpec.{uQuery, uAnswer}} {Result : Type uResult}
+    {State : Type uStateOne} (handler : OracleHandler oracle State)
+    {budget : Nat} (program : OracleProgram oracle Result budget) (state : State) :
+    (runOracleProgramWithTrace handler program state).toOuterMeasure
+        { output | budget < output.2.2.length } = 0 := by
+  rw [PMF.toOuterMeasure_apply]
+  rw [ENNReal.tsum_eq_zero]
+  intro output
+  simp only [Set.indicator_apply]
+  split_ifs with overBudget
+  · rw [PMF.apply_eq_zero_iff]
+    intro member
+    have withinBudget :=
+      runOracleProgramWithTrace_length_le handler program state output member
+    exact (Nat.not_lt_of_ge withinBudget overBudget).elim
+  · rfl
+
 /-- A path-safe handler equivalence lifts through one oracle program. -/
 theorem oracleProgram_run_stateEquiv_of_safe
     {oracle : OracleSpec.{uQuery, uAnswer}} {Result : Type uResult}

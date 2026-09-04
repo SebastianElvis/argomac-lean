@@ -308,6 +308,7 @@ A set with at most $k$ values has mass at most $k\cdot 2^{-128}$.
 The two-point collision event therefore has mass at most $2^{-127}$.
 Lean records each reached adversary query and its state.
 The trace length is at most its indexed query budget.
+A traced interpreter erases exactly to the original program PMF and gives zero mass to longer traces.
 If each step forbids at most $k$ blocks, its collision schedule has mass at most $qk\cdot 2^{-128}$.
 An exact coupling lemma converts disagreement-event mass to the challenge's real-valued advantage.
 
