@@ -26,7 +26,13 @@ theorem argoMACPerfectCorrectness [FieldCertificate] [GroupCertificate]
         (randomness.fixedKeyOracle, randomness.encPRFOracle, randomness.hashOracle)) :=
   ArgoMAC.RCBComplete.perfectCorrectness
 
+def argoMACLamportCompatible [FieldCertificate] [GroupCertificate] :
+    GarbledCircuit.LamportCompatibility
+      (ArgoMAC.Garbling.garbledCircuit ArgoMAC.construction) affineLamportBits :=
+  ArgoMAC.Lamport.compatible
+
 #print axioms argoMACRandomizedEncodingCorrect
 #print axioms argoMACRandomizedEncodingPrivate
 #print axioms argoMACOutputCount
 #print axioms argoMACPerfectCorrectness
+#print axioms argoMACLamportCompatible

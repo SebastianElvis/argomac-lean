@@ -30,6 +30,7 @@ A second Lean proof establishes complete Renes--Costello--Batina addition.
 It covers ordinary addition, doubling, and inverse addition.
 The construction uses the minimum adaptor count in the fixed bidegree $(2,2)$ Bosma--Lenstra family.
 Lean 4.24 checks these results without a new axiom or compiler-trusted evaluation.
+It also checks the 508-bit Lamport label order.
 The matching Rust code uses the same law and garbles independent rows with Rayon.
 \end{abstract}
 
@@ -285,6 +286,10 @@ The Rust checked evaluator rejects a coordinate that is at least the base-field 
 It then checks the curve equation.
 A regression test uses $x=p+1$ and $y=2$.
 Reduction would otherwise map this input to the valid generator $(1,2)$.
+
+Lean proves that the encoding key contains the 508 Lamport label pairs in x-then-y order.
+It proves that encoding selects the label for each bit of \texttt{affineLamportBits}.
+The theorem is \texttt{Lamport.compatible}.
 
 The complete row repairs the known perfect-correctness failure.
 The Rust permutation schedule still lacks a complete adaptive-privacy reduction.

@@ -6,6 +6,7 @@ The paper source is https://github.com/babylonlabs-io/BaBe.latex/tree/e2dcf4d540
 import Construction
 import Proof.Base7Termination
 import Proof.Gate
+import Proof.Lamport
 import Proof.Linking
 import Proof.RCBComplete
 import Proof.Security
