@@ -1,0 +1,69 @@
+import Proof.Security
+
+open Kriterion Kriterion.BN254
+
+theorem paperCTPRFHas100Bits :
+    Cryptography.Assumptions.ConcreteBound 100
+      ArgoMAC.Security.permutationWork ArgoMAC.Security.paperConcreteCTPRFError :=
+  ArgoMAC.Security.paperConcreteCTPRFHas100Bits
+
+theorem fullScheduleTransferredCTPRFDoesNotHave100Bits :
+    ¬Cryptography.Assumptions.ConcreteBound 100
+      ArgoMAC.Security.permutationWork ArgoMAC.Security.fullScheduleTransferredCTPRFError :=
+  ArgoMAC.Security.fullScheduleTransferredCTPRFDoesNotHave100Bits
+
+theorem programmedHashArithmeticHas100Bits :
+    Cryptography.Assumptions.ConcreteBound 100
+      ArgoMAC.Security.permutationWork ArgoMAC.Security.programmedHashError :=
+  ArgoMAC.Security.programmedHashArithmeticHas100Bits
+
+theorem programmedPadArithmeticHas100Bits :
+    Cryptography.Assumptions.ConcreteBound 100
+      ArgoMAC.Security.permutationWork ArgoMAC.Security.programmedPadError :=
+  ArgoMAC.Security.programmedPadArithmeticHas100Bits
+
+theorem hashLiftRoundingArithmeticHas100Bits :
+    Cryptography.Assumptions.WorkPerAdvantage 100 1
+      ArgoMAC.Security.hashLiftRoundingError :=
+  ArgoMAC.Security.hashLiftRoundingArithmeticHas100Bits
+
+#print axioms paperCTPRFHas100Bits
+#print axioms fullScheduleTransferredCTPRFDoesNotHave100Bits
+#print axioms programmedHashArithmeticHas100Bits
+#print axioms programmedPadArithmeticHas100Bits
+#print axioms hashLiftRoundingArithmeticHas100Bits
+#print axioms ArgoMAC.Security.pointLayerUsesLinkedInputKey
+#print axioms ArgoMAC.Security.recordFixed_preservesInvariant
+#print axioms ArgoMAC.Security.recordEnc_preservesInvariant
+#print axioms ArgoMAC.Security.addCommitment_preservesInvariant
+#print axioms ArgoMAC.Security.initialState_invariant
+#print axioms ArgoMAC.Security.SimulatorInvariant.transcriptsConsistent
+#print axioms ArgoMAC.Security.idealOracleHandler_preservesInvariant
+#print axioms ArgoMAC.Security.programPermutation_apply
+#print axioms ArgoMAC.Security.programPermutation_symm
+#print axioms ArgoMAC.Security.programPermutation_preserves
+#print axioms ArgoMAC.Security.programFixed_preservesInvariant
+#print axioms ArgoMAC.Security.programEnc_preservesInvariant
+#print axioms ArgoMAC.Security.programHash_apply
+#print axioms ArgoMAC.Security.programHash_preservesInvariant
+#print axioms Cryptography.freshPermutationPairCheck_eq_true
+#print axioms ArgoMAC.Security.freshHashInputCheck_eq_true
+#print axioms ArgoMAC.Security.tryProgramFixed_preservesInvariant
+#print axioms ArgoMAC.Security.tryProgramEnc_preservesInvariant
+#print axioms ArgoMAC.Security.tryProgramHash_preservesInvariant
+#print axioms ArgoMAC.Security.tryProgramFixed_badOrFresh
+#print axioms ArgoMAC.Security.tryProgramEnc_badOrFresh
+#print axioms ArgoMAC.Security.tryProgramHash_badOrFresh
+#print axioms ArgoMAC.Security.programHashGate_evaluate
+#print axioms ArgoMAC.Security.programPadGate_evaluate
+#print axioms ArgoMAC.Security.programGate_evaluate
+#print axioms ArgoMAC.Security.programGate_preservesInvariant
+#print axioms ArgoMAC.Security.programGate_badOrFreshAll
+#print axioms ArgoMAC.Security.liftHashBlocks_value
+#print axioms ArgoMAC.Security.targetPadBlocks_value
+#print axioms ArgoMAC.Security.programGateForTarget_evaluate
+#print axioms ArgoMAC.Security.programGateForTarget_preservesInvariant
+#print axioms ArgoMAC.Security.programGateForTarget_badOrFreshAll
+#print axioms ArgoMAC.Security.recordGateConstructionQueries_preservesInvariant
+#print axioms ArgoMAC.Security.recordGateConstructionQueries_length
+#print axioms ArgoMAC.Security.recordGateConstructionQueries_origin
