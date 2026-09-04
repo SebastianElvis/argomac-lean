@@ -454,6 +454,9 @@ def GateDirective.apply (directive : GateDirective)
   programGateForTarget state directive.location directive.window directive.bit
     directive.label directive.table directive.target directive.lift
 
+def GateDirective.activeSlotCount (directive : GateDirective) : Nat :=
+  if directive.bit then 2 else 3
+
 /-- This operation applies the selected gate programs in order. -/
 def programGateSchedule (state : SimulatorState)
     (schedule : List GateDirective) : SimulatorState :=
@@ -469,6 +472,104 @@ inductive GateScheduleFresh : SimulatorState → List GateDirective → Prop
         (targetPadBlocks directive.table directive.target))
       (next : GateScheduleFresh (directive.apply state) remaining) :
       GateScheduleFresh state (directive :: remaining)
+
+def gateScheduleActiveSlotCount (schedule : List GateDirective) : Nat :=
+  (schedule.map GateDirective.activeSlotCount).sum
+
+theorem programFixedSlot_fixedTranscript_length_of_fresh (state : SimulatorState)
+    (location : Pipeline.FixedKeyLocation) (window : Nat)
+    (slot : Pipeline.FixedKeySlot) (label block : Block)
+    (fresh : FreshPermutationPair state.fixedTranscript
+      (fixedKeyIndex location window slot) label (block ^^^ label)) :
+    (programFixedSlot state location window slot label block).fixedTranscript.length =
+      state.fixedTranscript.length + 1 := by
+  have checked := (freshPermutationPairCheck_eq_true _ _ _ _).2 fresh
+  simp [programFixedSlot, tryProgramFixed, checked, programFixed]
+
+theorem programHashGate_fixedTranscript_length_of_fresh (state : SimulatorState)
+    (location : Pipeline.FixedKeyLocation) (window : Nat)
+    (label : Block) (blocks : Fin 3 → Block)
+    (fresh : HashGateFresh state location window label blocks) :
+    (programHashGate state location window label blocks).fixedTranscript.length =
+      state.fixedTranscript.length + 3 := by
+  simp only [HashGateFresh] at fresh
+  rcases fresh with ⟨firstFresh, secondFresh, thirdFresh⟩
+  let first := programFixedSlot state location window (.hash 0) label (blocks 0)
+  let second := programFixedSlot first location window (.hash 1) label (blocks 1)
+  calc
+    (programHashGate state location window label blocks).fixedTranscript.length =
+        second.fixedTranscript.length + 1 :=
+      programFixedSlot_fixedTranscript_length_of_fresh second location window (.hash 2)
+        label (blocks 2) thirdFresh
+    _ = first.fixedTranscript.length + 2 := by
+      rw [programFixedSlot_fixedTranscript_length_of_fresh first location window (.hash 1)
+        label (blocks 1) secondFresh]
+    _ = state.fixedTranscript.length + 3 := by
+      rw [programFixedSlot_fixedTranscript_length_of_fresh state location window (.hash 0)
+        label (blocks 0) firstFresh]
+
+theorem programPadGate_fixedTranscript_length_of_fresh (state : SimulatorState)
+    (location : Pipeline.FixedKeyLocation) (window : Nat)
+    (label : Block) (blocks : Fin 2 → Block)
+    (fresh : PadGateFresh state location window label blocks) :
+    (programPadGate state location window label blocks).fixedTranscript.length =
+      state.fixedTranscript.length + 2 := by
+  simp only [PadGateFresh] at fresh
+  rcases fresh with ⟨firstFresh, secondFresh⟩
+  let first := programFixedSlot state location window (.pad 0) label (blocks 0)
+  calc
+    (programPadGate state location window label blocks).fixedTranscript.length =
+        first.fixedTranscript.length + 1 :=
+      programFixedSlot_fixedTranscript_length_of_fresh first location window (.pad 1)
+        label (blocks 1) secondFresh
+    _ = state.fixedTranscript.length + 2 := by
+      rw [programFixedSlot_fixedTranscript_length_of_fresh state location window (.pad 0)
+        label (blocks 0) firstFresh]
+
+theorem GateDirective.apply_fixedTranscript_length_of_fresh
+    (directive : GateDirective) (state : SimulatorState)
+    (fresh : GateFresh state directive.location directive.window directive.bit
+      directive.label (liftHashBlocks directive.lift.1)
+      (targetPadBlocks directive.table directive.target)) :
+    (directive.apply state).fixedTranscript.length =
+      state.fixedTranscript.length + directive.activeSlotCount := by
+  cases bit : directive.bit
+  · simpa [GateDirective.apply, GateDirective.activeSlotCount, programGateForTarget,
+      programGate, bit] using
+        programHashGate_fixedTranscript_length_of_fresh state directive.location
+          directive.window directive.label (liftHashBlocks directive.lift.1) (by
+            simpa [GateFresh, bit] using fresh)
+  · simpa [GateDirective.apply, GateDirective.activeSlotCount, programGateForTarget,
+      programGate, bit] using
+        programPadGate_fixedTranscript_length_of_fresh state directive.location
+          directive.window directive.label (targetPadBlocks directive.table directive.target) (by
+            simpa [GateFresh, bit] using fresh)
+
+theorem gateScheduleActiveSlotCount_le (schedule : List GateDirective) :
+    gateScheduleActiveSlotCount schedule ≤ 3 * schedule.length := by
+  induction schedule with
+  | nil => simp [gateScheduleActiveSlotCount]
+  | cons directive remaining inductionHypothesis =>
+      change (remaining.map GateDirective.activeSlotCount).sum ≤
+        3 * remaining.length at inductionHypothesis
+      cases bit : directive.bit <;>
+        simp [gateScheduleActiveSlotCount, GateDirective.activeSlotCount, bit] <;> omega
+
+/-- A fresh schedule adds exactly its selected hash or pad slot count. -/
+theorem programGateSchedule_fixedTranscript_length_of_fresh
+    {state : SimulatorState} {schedule : List GateDirective}
+    (fresh : GateScheduleFresh state schedule) :
+    (programGateSchedule state schedule).fixedTranscript.length =
+      state.fixedTranscript.length + gateScheduleActiveSlotCount schedule := by
+  induction fresh with
+  | nil state => simp [programGateSchedule, gateScheduleActiveSlotCount]
+  | @cons state directive remaining current next inductionHypothesis =>
+      rw [programGateSchedule, List.foldl_cons]
+      change (programGateSchedule (directive.apply state) remaining).fixedTranscript.length = _
+      rw [inductionHypothesis]
+      rw [directive.apply_fixedTranscript_length_of_fresh state current]
+      simp [gateScheduleActiveSlotCount]
+      omega
 
 theorem GateDirective.apply_preservesInvariant (directive : GateDirective)
     (state : SimulatorState) (invariant : SimulatorInvariant state) :
@@ -550,5 +651,32 @@ theorem programGateSchedule_badOrFresh (state : SimulatorState)
       · rcases inductionHypothesis (directive.apply state) with bad | remainingFresh
         · exact Or.inl (by simpa [programGateSchedule] using bad)
         · exact Or.inr (.cons fresh remainingFresh)
+
+/-- A collision-free final state proves freshness at every reached step. -/
+theorem programGateSchedule_fresh_of_notBad (state : SimulatorState)
+    (schedule : List GateDirective)
+    (notBad : (programGateSchedule state schedule).bad = false) :
+    GateScheduleFresh state schedule := by
+  rcases programGateSchedule_badOrFresh state schedule with bad | fresh
+  · exact (Bool.false_ne_true (notBad.symm.trans bad)).elim
+  · exact fresh
+
+/-- A collision-free schedule adds exactly its selected slot count. -/
+theorem programGateSchedule_fixedTranscript_length_of_notBad
+    (state : SimulatorState) (schedule : List GateDirective)
+    (notBad : (programGateSchedule state schedule).bad = false) :
+    (programGateSchedule state schedule).fixedTranscript.length =
+      state.fixedTranscript.length + gateScheduleActiveSlotCount schedule :=
+  programGateSchedule_fixedTranscript_length_of_fresh
+    (programGateSchedule_fresh_of_notBad state schedule notBad)
+
+/-- A collision-free gate schedule adds at most three slots per gate. -/
+theorem programGateSchedule_fixedTranscript_length_le_of_notBad
+    (state : SimulatorState) (schedule : List GateDirective)
+    (notBad : (programGateSchedule state schedule).bad = false) :
+    (programGateSchedule state schedule).fixedTranscript.length ≤
+      state.fixedTranscript.length + 3 * schedule.length := by
+  rw [programGateSchedule_fixedTranscript_length_of_notBad state schedule notBad]
+  exact Nat.add_le_add_left (gateScheduleActiveSlotCount_le schedule) _
 
 end Kriterion.ArgoMAC.Security

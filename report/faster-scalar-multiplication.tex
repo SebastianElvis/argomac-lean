@@ -321,6 +321,9 @@ Lean also bounds this change event by any containing reached-collision event.
 The gate programmer now accepts an ordered schedule of selected gates.
 It preserves the shared invariant and keeps a prior collision flag.
 It proves that every reached programming step is fresh unless the final state records a collision.
+It also counts the selected slots exactly.
+A false-bit gate adds three fixed-key records, and a true-bit gate adds two.
+A collision-free schedule adds their sum, which is at most three times the gate count.
 
 The complete row repairs the known perfect-correctness failure.
 The Rust permutation schedule still lacks a complete adaptive-privacy reduction.
