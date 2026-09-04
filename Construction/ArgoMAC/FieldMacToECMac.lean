@@ -97,9 +97,10 @@ def outputKeys (construction : Construction) (scalar : ScalarField)
   let digits : Vector Digit outputMacCount :=
     ⟨(construction.digits scalar).toArray,
       by simpa [outputMacCount] using construction.digitCount scalar⟩
+  let offsetValues := offsets.values
   Vector.ofFn fun index => {
     digit := digits.get index
-    offset := offsets.values.get index
+    offset := offsetValues.get index
   }
 
 def rowsForOutputKeys (keys : OutputKeys) (randomness : Randomness) : Rows :=
@@ -134,17 +135,12 @@ def garbleRow (rows : Coordinates.Rows) (randomness : RowRandomness)
 }
 
 def garble (rows : Rows) (randomness : Randomness)
-    (oracles : Oracles) (inputKey : InputMacKey) : Table := {
-  x := Vector.ofFn fun index =>
-    (garbleRow (rows.get index) (randomness.get index)
-      (oracles.get index) inputKey).x
-  y := Vector.ofFn fun index =>
-    (garbleRow (rows.get index) (randomness.get index)
-      (oracles.get index) inputKey).y
-  z := Vector.ofFn fun index =>
-    (garbleRow (rows.get index) (randomness.get index)
-      (oracles.get index) inputKey).z
-}
+    (oracles : Oracles) (inputKey : InputMacKey) : Table :=
+  let tables := Vector.ofFn fun index =>
+    garbleRow (rows.get index) (randomness.get index) (oracles.get index) inputKey
+  { x := tables.map RowTable.x
+    y := tables.map RowTable.y
+    z := tables.map RowTable.z }
 
 def evaluateJacobian (table : Table) (oracles : Oracles)
     (input : AffineInput) (inputMac : InputMac) : Vector JacobianValue outputMacCount :=
@@ -272,7 +268,7 @@ theorem evaluateJacobianEncoded (rows : Rows) (randomness : Randomness)
   have rowSparse := sparse ⟨index, inRange⟩
   rcases rowSparse with ⟨xXY, xY2, yX, zY, zXY, zX2, zY2⟩
   simp only [evaluateJacobian, garble, garbleRow, Vector.getElem_ofFn,
-    Vector.get_ofFn]
+    Vector.get_map, Vector.get_ofFn]
   rw [Biquadratic.evaluateEncodedX, Biquadratic.evaluateEncodedY,
     Biquadratic.evaluateEncodedZ]
   simp [evaluateRows, evaluateRow, Coordinates.evaluate, xXY, xY2, yX, zY, zXY,
