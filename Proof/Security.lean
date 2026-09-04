@@ -7,6 +7,7 @@ The paper source is https://github.com/babylonlabs-io/BaBe.latex/tree/e2dcf4d540
 import Construction.Garbling
 import Cryptography.Assumptions
 import Proof.Simulator
+import Security.AdaptivePrivacy
 
 namespace Kriterion.ArgoMAC.Security
 
@@ -228,6 +229,139 @@ theorem blockCollisionMass_toReal (count : Nat) :
   rw [ENNReal.toReal_mul]
   rw [ENNReal.toReal_inv]
   norm_num [blockBits, div_eq_mul_inv]
+
+/-- This game refines the real adaptive game with both reached query traces. -/
+noncomputable def tracedRealGame
+    {oracle : OracleSpec}
+    {Circuit Input Output Randomness Public EncodingKey Labels
+      EvaluationOracle : Type uSample} {Aux : Type uCPAAux}
+    (scheme : GarbledCircuit Circuit Input Output Randomness Public EncodingKey Labels
+      EvaluationOracle)
+    (randomTape : Nat → PMF Randomness)
+    (oracleHandler : OracleHandler oracle Randomness)
+    (adversary : AdaptiveAdversary oracle Input Public Labels Aux)
+    (parameter : Nat) (circuit : Circuit) (auxiliary : Aux) :
+    PMF (Bool × Randomness × List (oracle.Query × Randomness)) :=
+  (randomTape parameter).bind fun randomness =>
+    let garbled := scheme.garble parameter circuit randomness
+    runOracleProgramsWithTrace oracleHandler
+      (adversary.chooseInput parameter garbled.1 auxiliary)
+      (fun selected => adversary.decide parameter garbled.1
+        (scheme.encode garbled.2 selected.1) auxiliary selected.2)
+      randomness
+
+/-- Erasing both real traces gives the challenge's real game. -/
+theorem tracedRealGame_erase
+    {oracle : OracleSpec}
+    {Circuit Input Output Randomness Public EncodingKey Labels
+      EvaluationOracle : Type uSample} {Aux : Type uCPAAux}
+    (scheme : GarbledCircuit Circuit Input Output Randomness Public EncodingKey Labels
+      EvaluationOracle)
+    (randomTape : Nat → PMF Randomness)
+    (oracleHandler : OracleHandler oracle Randomness)
+    (adversary : AdaptiveAdversary oracle Input Public Labels Aux)
+    (parameter : Nat) (circuit : Circuit) (auxiliary : Aux) :
+    (tracedRealGame scheme randomTape oracleHandler adversary parameter circuit auxiliary).map
+        Prod.fst =
+      realGame scheme randomTape oracleHandler adversary parameter circuit auxiliary := by
+  rw [tracedRealGame, realGame, PMF.map_bind]
+  congr 1
+  funext randomness
+  simpa only using runOracleProgramsWithTrace_result oracleHandler
+    (adversary.chooseInput parameter (scheme.garble parameter circuit randomness).1 auxiliary)
+    (fun selected : Input × adversary.State => adversary.decide parameter
+      (scheme.garble parameter circuit randomness).1
+      (scheme.encode (scheme.garble parameter circuit randomness).2 selected.1)
+      auxiliary selected.2) randomness
+
+/-- The traced real game gives zero mass to paths above both query budgets. -/
+theorem tracedRealGame_overBudget_mass
+    {oracle : OracleSpec}
+    {Circuit Input Output Randomness Public EncodingKey Labels
+      EvaluationOracle : Type uSample} {Aux : Type uCPAAux}
+    (scheme : GarbledCircuit Circuit Input Output Randomness Public EncodingKey Labels
+      EvaluationOracle)
+    (randomTape : Nat → PMF Randomness)
+    (oracleHandler : OracleHandler oracle Randomness)
+    (adversary : AdaptiveAdversary oracle Input Public Labels Aux)
+    (parameter : Nat) (circuit : Circuit) (auxiliary : Aux) :
+    PMF.toOuterMeasure
+      (tracedRealGame scheme randomTape oracleHandler adversary parameter circuit auxiliary)
+      { output |
+        adversary.firstQueryBudget parameter + adversary.secondQueryBudget parameter <
+          output.2.2.length } = 0 := by
+  rw [tracedRealGame, PMF.toOuterMeasure_bind_apply]
+  simp_rw [runOracleProgramsWithTrace_overBudget_mass, mul_zero]
+  simp
+
+/-- This game refines the ideal adaptive game with both reached query traces. -/
+noncomputable def tracedIdealGame
+    {oracle : OracleSpec}
+    {Circuit Input Output Randomness Public EncodingKey Labels EvaluationOracle
+      Topology State : Type uSample} {Aux : Type uCPAAux}
+    (scheme : GarbledCircuit Circuit Input Output Randomness Public EncodingKey Labels
+      EvaluationOracle)
+    (topology : Circuit → Topology)
+    (simulator : Simulator Input Output Public Labels Topology State)
+    (oracleHandler : OracleHandler oracle State)
+    (adversary : AdaptiveAdversary oracle Input Public Labels Aux)
+    (parameter : Nat) (circuit : Circuit) (auxiliary : Aux) :
+    PMF (Bool × State × List (oracle.Query × State)) :=
+  (simulator.simulateGarble parameter (topology circuit)).bind fun simulated =>
+    runOracleProgramsWithBridgeTrace oracleHandler
+      (adversary.chooseInput parameter simulated.1 auxiliary)
+      (fun selected state =>
+        simulator.simulateEncode state selected.1 (scheme.function circuit selected.1))
+      (fun selected encoded => adversary.decide parameter simulated.1 encoded
+        auxiliary selected.2)
+      simulated.2
+
+/-- Erasing both ideal traces gives the challenge's ideal game. -/
+theorem tracedIdealGame_erase
+    {oracle : OracleSpec}
+    {Circuit Input Output Randomness Public EncodingKey Labels EvaluationOracle
+      Topology State : Type uSample} {Aux : Type uCPAAux}
+    (scheme : GarbledCircuit Circuit Input Output Randomness Public EncodingKey Labels
+      EvaluationOracle)
+    (topology : Circuit → Topology)
+    (simulator : Simulator Input Output Public Labels Topology State)
+    (oracleHandler : OracleHandler oracle State)
+    (adversary : AdaptiveAdversary oracle Input Public Labels Aux)
+    (parameter : Nat) (circuit : Circuit) (auxiliary : Aux) :
+    (tracedIdealGame scheme topology simulator oracleHandler adversary parameter circuit
+      auxiliary).map Prod.fst =
+      idealGame scheme topology simulator oracleHandler adversary parameter circuit
+        auxiliary := by
+  rw [tracedIdealGame, idealGame, PMF.map_bind]
+  congr 1
+  funext simulated
+  simpa only using runOracleProgramsWithBridgeTrace_result oracleHandler
+    (adversary.chooseInput parameter simulated.1 auxiliary)
+    (fun selected : Input × adversary.State => fun state =>
+      simulator.simulateEncode state selected.1 (scheme.function circuit selected.1))
+    (fun selected : Input × adversary.State => fun encoded : Labels =>
+      adversary.decide parameter simulated.1 encoded auxiliary selected.2)
+    simulated.2
+
+/-- The traced ideal game gives zero mass to paths above both query budgets. -/
+theorem tracedIdealGame_overBudget_mass
+    {oracle : OracleSpec}
+    {Circuit Input Output Randomness Public EncodingKey Labels EvaluationOracle
+      Topology State : Type uSample} {Aux : Type uCPAAux}
+    (scheme : GarbledCircuit Circuit Input Output Randomness Public EncodingKey Labels
+      EvaluationOracle)
+    (topology : Circuit → Topology)
+    (simulator : Simulator Input Output Public Labels Topology State)
+    (oracleHandler : OracleHandler oracle State)
+    (adversary : AdaptiveAdversary oracle Input Public Labels Aux)
+    (parameter : Nat) (circuit : Circuit) (auxiliary : Aux) :
+    (tracedIdealGame scheme topology simulator oracleHandler adversary parameter circuit
+      auxiliary).toOuterMeasure { output |
+        adversary.firstQueryBudget parameter + adversary.secondQueryBudget parameter <
+          output.2.2.length } = 0 := by
+  rw [tracedIdealGame, PMF.toOuterMeasure_bind_apply]
+  simp_rw [runOracleProgramsWithBridgeTrace_overBudget_mass, mul_zero]
+  simp
 
 /-- The paper base-`(2 - omega)` case uses 92 active inputs per bucket. -/
 def paperActiveInputsPerBucket : Nat := 92

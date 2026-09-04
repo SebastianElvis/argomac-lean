@@ -53,6 +53,14 @@ theorem hashLiftRoundingArithmeticHas100Bits :
 #print axioms ArgoMAC.Security.runOracleProgramWithTrace_reached
 #print axioms ArgoMAC.Security.runOracleProgramWithTrace_length_le
 #print axioms ArgoMAC.Security.runOracleProgramWithTrace_overBudget_mass
+#print axioms ArgoMAC.Security.runOracleProgramsWithTrace_erase
+#print axioms ArgoMAC.Security.runOracleProgramsWithTrace_result
+#print axioms ArgoMAC.Security.runOracleProgramsWithTrace_length_le
+#print axioms ArgoMAC.Security.runOracleProgramsWithTrace_overBudget_mass
+#print axioms ArgoMAC.Security.runOracleProgramsWithBridgeTrace_erase
+#print axioms ArgoMAC.Security.runOracleProgramsWithBridgeTrace_result
+#print axioms ArgoMAC.Security.runOracleProgramsWithBridgeTrace_length_le
+#print axioms ArgoMAC.Security.runOracleProgramsWithBridgeTrace_overBudget_mass
 #print axioms ArgoMAC.Security.oracleProgramTrace_collisionScheduleMass_le
 #print axioms ArgoMAC.Security.advantage_map_prod_le_disagreement
 #print axioms ArgoMAC.Security.boolDisagreement_mass
@@ -63,6 +71,10 @@ theorem hashLiftRoundingArithmeticHas100Bits :
 #print axioms ArgoMAC.Security.deterministicBoolCoupling_disagreement
 #print axioms ArgoMAC.Security.advantage_map_le_disagreementMass
 #print axioms ArgoMAC.Security.blockCollisionMass_toReal
+#print axioms ArgoMAC.Security.tracedRealGame_erase
+#print axioms ArgoMAC.Security.tracedRealGame_overBudget_mass
+#print axioms ArgoMAC.Security.tracedIdealGame_erase
+#print axioms ArgoMAC.Security.tracedIdealGame_overBudget_mass
 #print axioms ArgoMAC.Security.pointLayerUsesLinkedInputKey
 #print axioms ArgoMAC.Security.recordFixed_preservesInvariant
 #print axioms ArgoMAC.Security.recordEnc_preservesInvariant

@@ -11,7 +11,7 @@ namespace Kriterion.ArgoMAC.Security
 open BN254 Cryptography
 
 universe uSample uDomain uRange uIndex uSlot
-  uQuery uAnswer uResult uStateOne uStateTwo
+  uQuery uAnswer uResult uStateOne uStateTwo uFirst uMiddle uSecond
 
 /-- An equivalence preserves the uniform distribution on one finite type. -/
 theorem map_uniformOfFintype_equiv
@@ -208,6 +208,258 @@ theorem runOracleProgramWithTrace_overBudget_mass
     intro member
     have withinBudget :=
       runOracleProgramWithTrace_length_le handler program state output member
+    exact (Nat.not_lt_of_ge withinBudget overBudget).elim
+  · rfl
+
+/-- This interpreter appends the traces of two adaptive program phases. -/
+noncomputable def runOracleProgramsWithTrace
+    {oracle : OracleSpec.{uQuery, uAnswer}}
+    {FirstResult : Type uFirst} {SecondResult : Type uSecond}
+    {State : Type uStateOne}
+    (handler : OracleHandler oracle State)
+    {firstBudget secondBudget : Nat}
+    (first : OracleProgram oracle FirstResult firstBudget)
+    (second : FirstResult → OracleProgram oracle SecondResult secondBudget)
+    (state : State) :
+    PMF (SecondResult × State × List (oracle.Query × State)) :=
+  (runOracleProgramWithTrace handler first state).bind fun firstOutput =>
+    (runOracleProgramWithTrace handler (second firstOutput.1) firstOutput.2.1).map
+      fun secondOutput =>
+        (secondOutput.1, secondOutput.2.1, firstOutput.2.2 ++ secondOutput.2.2)
+
+/-- Erasing the appended trace gives the original two-phase distribution. -/
+theorem runOracleProgramsWithTrace_erase
+    {oracle : OracleSpec.{uQuery, uAnswer}}
+    {FirstResult : Type uFirst} {SecondResult : Type uSecond}
+    {State : Type uStateOne}
+    (handler : OracleHandler oracle State)
+    {firstBudget secondBudget : Nat}
+    (first : OracleProgram oracle FirstResult firstBudget)
+    (second : FirstResult → OracleProgram oracle SecondResult secondBudget)
+    (state : State) :
+    (runOracleProgramsWithTrace handler first second state).map
+        (fun output => (output.1, output.2.1)) =
+      (first.run handler state).bind fun firstOutput =>
+        (second firstOutput.1).run handler firstOutput.2 := by
+  rw [runOracleProgramsWithTrace, PMF.map_bind]
+  simp_rw [PMF.map_comp]
+  change (runOracleProgramWithTrace handler first state).bind
+      (fun firstOutput =>
+        (runOracleProgramWithTrace handler (second firstOutput.1)
+          firstOutput.2.1).map (fun output => (output.1, output.2.1))) = _
+  simp_rw [runOracleProgramWithTrace_erase]
+  rw [← runOracleProgramWithTrace_erase handler first state]
+  rw [PMF.bind_map]
+  rfl
+
+/-- Erasing state and trace gives the two-phase result distribution. -/
+theorem runOracleProgramsWithTrace_result
+    {oracle : OracleSpec.{uQuery, uAnswer}}
+    {FirstResult : Type uFirst} {SecondResult : Type uSecond}
+    {State : Type uStateOne} (handler : OracleHandler oracle State)
+    {firstBudget secondBudget : Nat}
+    (first : OracleProgram oracle FirstResult firstBudget)
+    (second : FirstResult → OracleProgram oracle SecondResult secondBudget)
+    (state : State) :
+    (runOracleProgramsWithTrace handler first second state).map Prod.fst =
+      (first.run handler state).bind fun firstOutput =>
+        ((second firstOutput.1).run handler firstOutput.2).map Prod.fst := by
+  calc
+    (runOracleProgramsWithTrace handler first second state).map Prod.fst =
+        ((runOracleProgramsWithTrace handler first second state).map
+          (fun output => (output.1, output.2.1))).map Prod.fst := by
+      rw [PMF.map_comp]
+      rfl
+    _ = ((first.run handler state).bind fun firstOutput =>
+        (second firstOutput.1).run handler firstOutput.2).map Prod.fst := by
+      rw [runOracleProgramsWithTrace_erase]
+    _ = (first.run handler state).bind fun firstOutput =>
+        ((second firstOutput.1).run handler firstOutput.2).map Prod.fst := by
+      rw [PMF.map_bind]
+
+/-- Every two-phase traced output stays within the sum of both budgets. -/
+theorem runOracleProgramsWithTrace_length_le
+    {oracle : OracleSpec.{uQuery, uAnswer}}
+    {FirstResult : Type uFirst} {SecondResult : Type uSecond}
+    {State : Type uStateOne}
+    (handler : OracleHandler oracle State)
+    {firstBudget secondBudget : Nat}
+    (first : OracleProgram oracle FirstResult firstBudget)
+    (second : FirstResult → OracleProgram oracle SecondResult secondBudget)
+    (state : State)
+    (output : SecondResult × State × List (oracle.Query × State))
+    (member : output ∈
+      (runOracleProgramsWithTrace handler first second state).support) :
+    output.2.2.length ≤ firstBudget + secondBudget := by
+  simp only [runOracleProgramsWithTrace, PMF.mem_support_bind_iff] at member
+  rcases member with ⟨firstOutput, firstMember, member⟩
+  rw [PMF.mem_support_map_iff] at member
+  rcases member with ⟨secondOutput, secondMember, rfl⟩
+  rw [List.length_append]
+  exact Nat.add_le_add
+    (runOracleProgramWithTrace_length_le handler first state firstOutput firstMember)
+    (runOracleProgramWithTrace_length_le handler (second firstOutput.1)
+      firstOutput.2.1 secondOutput secondMember)
+
+/-- Two-phase traces above the summed query budget have zero mass. -/
+theorem runOracleProgramsWithTrace_overBudget_mass
+    {oracle : OracleSpec.{uQuery, uAnswer}}
+    {FirstResult : Type uFirst} {SecondResult : Type uSecond}
+    {State : Type uStateOne}
+    (handler : OracleHandler oracle State)
+    {firstBudget secondBudget : Nat}
+    (first : OracleProgram oracle FirstResult firstBudget)
+    (second : FirstResult → OracleProgram oracle SecondResult secondBudget)
+    (state : State) :
+    (runOracleProgramsWithTrace handler first second state).toOuterMeasure
+        { output | firstBudget + secondBudget < output.2.2.length } = 0 := by
+  rw [PMF.toOuterMeasure_apply, ENNReal.tsum_eq_zero]
+  intro output
+  simp only [Set.indicator_apply]
+  split_ifs with overBudget
+  · rw [PMF.apply_eq_zero_iff]
+    intro member
+    have withinBudget :=
+      runOracleProgramsWithTrace_length_le handler first second state output member
+    exact (Nat.not_lt_of_ge withinBudget overBudget).elim
+  · rfl
+
+/-- This two-phase interpreter permits one query-free state bridge. -/
+noncomputable def runOracleProgramsWithBridgeTrace
+    {oracle : OracleSpec.{uQuery, uAnswer}}
+    {FirstResult : Type uFirst} {MiddleResult : Type uMiddle}
+    {SecondResult : Type uSecond}
+    {State : Type uStateOne} (handler : OracleHandler oracle State)
+    {firstBudget secondBudget : Nat}
+    (first : OracleProgram oracle FirstResult firstBudget)
+    (bridge : FirstResult → State → PMF (MiddleResult × State))
+    (second : FirstResult → MiddleResult →
+      OracleProgram oracle SecondResult secondBudget)
+    (state : State) :
+    PMF (SecondResult × State × List (oracle.Query × State)) :=
+  (runOracleProgramWithTrace handler first state).bind fun firstOutput =>
+    (bridge firstOutput.1 firstOutput.2.1).bind fun middleOutput =>
+      (runOracleProgramWithTrace handler
+        (second firstOutput.1 middleOutput.1) middleOutput.2).map
+          fun secondOutput =>
+            (secondOutput.1, secondOutput.2.1,
+              firstOutput.2.2 ++ secondOutput.2.2)
+
+/-- Erasing a bridged trace gives the original bridged distribution. -/
+theorem runOracleProgramsWithBridgeTrace_erase
+    {oracle : OracleSpec.{uQuery, uAnswer}}
+    {FirstResult : Type uFirst} {MiddleResult : Type uMiddle}
+    {SecondResult : Type uSecond}
+    {State : Type uStateOne} (handler : OracleHandler oracle State)
+    {firstBudget secondBudget : Nat}
+    (first : OracleProgram oracle FirstResult firstBudget)
+    (bridge : FirstResult → State → PMF (MiddleResult × State))
+    (second : FirstResult → MiddleResult →
+      OracleProgram oracle SecondResult secondBudget)
+    (state : State) :
+    (runOracleProgramsWithBridgeTrace handler first bridge second state).map
+        (fun output => (output.1, output.2.1)) =
+      (first.run handler state).bind fun firstOutput =>
+        (bridge firstOutput.1 firstOutput.2).bind fun middleOutput =>
+          (second firstOutput.1 middleOutput.1).run handler middleOutput.2 := by
+  rw [runOracleProgramsWithBridgeTrace, PMF.map_bind]
+  simp_rw [PMF.map_bind, PMF.map_comp]
+  change (runOracleProgramWithTrace handler first state).bind
+      (fun firstOutput =>
+        (bridge firstOutput.1 firstOutput.2.1).bind fun middleOutput =>
+          (runOracleProgramWithTrace handler
+            (second firstOutput.1 middleOutput.1) middleOutput.2).map
+              (fun output => (output.1, output.2.1))) = _
+  simp_rw [runOracleProgramWithTrace_erase]
+  rw [← runOracleProgramWithTrace_erase handler first state]
+  rw [PMF.bind_map]
+  rfl
+
+/-- Erasing state and trace gives the bridged result distribution. -/
+theorem runOracleProgramsWithBridgeTrace_result
+    {oracle : OracleSpec.{uQuery, uAnswer}}
+    {FirstResult : Type uFirst} {MiddleResult : Type uMiddle}
+    {SecondResult : Type uSecond}
+    {State : Type uStateOne} (handler : OracleHandler oracle State)
+    {firstBudget secondBudget : Nat}
+    (first : OracleProgram oracle FirstResult firstBudget)
+    (bridge : FirstResult → State → PMF (MiddleResult × State))
+    (second : FirstResult → MiddleResult →
+      OracleProgram oracle SecondResult secondBudget)
+    (state : State) :
+    (runOracleProgramsWithBridgeTrace handler first bridge second state).map Prod.fst =
+      (first.run handler state).bind fun firstOutput =>
+        (bridge firstOutput.1 firstOutput.2).bind fun middleOutput =>
+          ((second firstOutput.1 middleOutput.1).run handler middleOutput.2).map
+            Prod.fst := by
+  calc
+    (runOracleProgramsWithBridgeTrace handler first bridge second state).map Prod.fst =
+        ((runOracleProgramsWithBridgeTrace handler first bridge second state).map
+          (fun output => (output.1, output.2.1))).map Prod.fst := by
+      rw [PMF.map_comp]
+      rfl
+    _ = ((first.run handler state).bind fun firstOutput =>
+        (bridge firstOutput.1 firstOutput.2).bind fun middleOutput =>
+          (second firstOutput.1 middleOutput.1).run handler middleOutput.2).map Prod.fst := by
+      rw [runOracleProgramsWithBridgeTrace_erase]
+    _ = (first.run handler state).bind fun firstOutput =>
+        (bridge firstOutput.1 firstOutput.2).bind fun middleOutput =>
+          ((second firstOutput.1 middleOutput.1).run handler middleOutput.2).map
+            Prod.fst := by
+      rw [PMF.map_bind]
+      congr 1
+      funext firstOutput
+      rw [PMF.map_bind]
+
+/-- A query-free bridge does not increase the two-phase trace budget. -/
+theorem runOracleProgramsWithBridgeTrace_length_le
+    {oracle : OracleSpec.{uQuery, uAnswer}}
+    {FirstResult : Type uFirst} {MiddleResult : Type uMiddle}
+    {SecondResult : Type uSecond}
+    {State : Type uStateOne} (handler : OracleHandler oracle State)
+    {firstBudget secondBudget : Nat}
+    (first : OracleProgram oracle FirstResult firstBudget)
+    (bridge : FirstResult → State → PMF (MiddleResult × State))
+    (second : FirstResult → MiddleResult →
+      OracleProgram oracle SecondResult secondBudget)
+    (state : State)
+    (output : SecondResult × State × List (oracle.Query × State))
+    (member : output ∈
+      (runOracleProgramsWithBridgeTrace handler first bridge second state).support) :
+    output.2.2.length ≤ firstBudget + secondBudget := by
+  simp only [runOracleProgramsWithBridgeTrace, PMF.mem_support_bind_iff] at member
+  rcases member with ⟨firstOutput, firstMember, middleMember⟩
+  rcases middleMember with ⟨middleOutput, _, member⟩
+  rw [PMF.mem_support_map_iff] at member
+  rcases member with ⟨secondOutput, secondMember, rfl⟩
+  rw [List.length_append]
+  exact Nat.add_le_add
+    (runOracleProgramWithTrace_length_le handler first state firstOutput firstMember)
+    (runOracleProgramWithTrace_length_le handler
+      (second firstOutput.1 middleOutput.1) middleOutput.2 secondOutput secondMember)
+
+/-- Bridged traces above both query budgets have zero mass. -/
+theorem runOracleProgramsWithBridgeTrace_overBudget_mass
+    {oracle : OracleSpec.{uQuery, uAnswer}}
+    {FirstResult : Type uFirst} {MiddleResult : Type uMiddle}
+    {SecondResult : Type uSecond}
+    {State : Type uStateOne} (handler : OracleHandler oracle State)
+    {firstBudget secondBudget : Nat}
+    (first : OracleProgram oracle FirstResult firstBudget)
+    (bridge : FirstResult → State → PMF (MiddleResult × State))
+    (second : FirstResult → MiddleResult →
+      OracleProgram oracle SecondResult secondBudget)
+    (state : State) :
+    (runOracleProgramsWithBridgeTrace handler first bridge second state).toOuterMeasure
+        { output | firstBudget + secondBudget < output.2.2.length } = 0 := by
+  rw [PMF.toOuterMeasure_apply, ENNReal.tsum_eq_zero]
+  intro output
+  simp only [Set.indicator_apply]
+  split_ifs with overBudget
+  · rw [PMF.apply_eq_zero_iff]
+    intro member
+    have withinBudget := runOracleProgramsWithBridgeTrace_length_le
+      handler first bridge second state output member
     exact (Nat.not_lt_of_ge withinBudget overBudget).elim
   · rfl
 
