@@ -246,19 +246,21 @@ The root seed is erased after row construction.
 Jobs borrow output keys.
 They do not copy those secret keys into a second vector.
 Fixed Boolean arrays replace heap-based coefficient index sets.
+Each window set reuses its SHA-256 bucket and role prefixes while it derives 15 fixed AES keys.
 Tests compare one-worker and four-worker tables.
 A second test compares all 273 allocated child nonces with the serial schedule.
 
 On the same Apple M5, the ARMv8 AES benchmarks used 100 Criterion samples.
 The incomplete 92-row serial baseline estimate was 15.934 ms.
-The complete 91-row, 10-worker row mean is 3.760 ms.
-Its 95 percent interval is 3.732 to 3.793 ms.
+The complete 91-row, 10-worker row mean is 3.754 ms.
+Its 95 percent interval is 3.732 to 3.778 ms.
 The complete row stage is 4.24 times faster than the serial baseline.
+The prefix reuse lowers the row mean by 2.3 percent against its isolated prior commit.
 
-The protocol \texttt{encode} mean is 69.766 ms.
-Its 95 percent interval is 69.676 to 69.872 ms.
+The protocol \texttt{encode} mean is 69.092 ms.
+Its 95 percent interval is 69.033 to 69.156 ms.
 The comparable baseline is 81.309 ms.
-The complete implementation reduces this time by 14.2 percent.
+The complete implementation reduces this time by 15.0 percent.
 Its HMAC table has 9,668,659 bytes.
 This is 2,970,240 bytes larger than the incomplete 91-row table.
 
