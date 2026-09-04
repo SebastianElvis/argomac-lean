@@ -299,6 +299,13 @@ Programming a fixed output alone does not preserve uniformity.
 The permutation law also composes over every fixed finite target-tape schedule.
 Both oracle laws preserve the uniform fiber of fresh oracles that match a fixed query transcript.
 Lean also lifts an exact handler equivalence through every bounded adversary oracle program.
+The permutation and hash involutions extend to the complete shared simulator state.
+Fresh state swaps preserve every shared transcript and label invariant.
+Each safe ideal-oracle query commutes with the matching full-state swap.
+Thus, every path-safe bounded adversary program commutes with either swap in exact PMF equality.
+Lean proves the exact mass of every finite forbidden block set.
+A set with at most $k$ values has mass at most $k\cdot 2^{-128}$.
+The two-point collision event therefore has mass at most $2^{-127}$.
 
 The complete row repairs the known perfect-correctness failure.
 The Rust permutation schedule still lacks a complete adaptive-privacy reduction.

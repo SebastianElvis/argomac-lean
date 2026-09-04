@@ -29,6 +29,49 @@ abbrev BaBeAssumptions
 /-- The fixed AES block size in the paper is 128 bits. -/
 def blockBits : Nat := 128
 
+/-- The block type has exactly 2^128 values. -/
+theorem blockCard : Fintype.card Block = 2 ^ blockBits := by
+  calc
+    Fintype.card Block = Fintype.card (Fin (2 ^ 128)) :=
+      Fintype.card_congr BitVec.equivFin.toEquiv
+    _ = 2 ^ blockBits := by simp [blockBits]
+
+/-- One value has exact mass 2^-128 under the uniform block tape. -/
+theorem uniformBlockMass (value : Block) :
+    PMF.uniformOfFintype Block value =
+      Inv.inv (↑(2 ^ blockBits : Nat) : ENNReal) := by
+  rw [PMF.uniformOfFintype_apply, blockCard]
+
+/-- Two forbidden block values have this union-bound mass. -/
+theorem uniformBlockTwoPointUnionBound (first second : Block) :
+    PMF.uniformOfFintype Block first + PMF.uniformOfFintype Block second =
+      2 * Inv.inv (↑(2 ^ blockBits : Nat) : ENNReal) := by
+  rw [uniformBlockMass, uniformBlockMass]
+  ring
+
+/-- A finite forbidden set has its exact cardinality divided by 2^128 as mass. -/
+theorem uniformBlockFinsetMass (forbidden : Finset Block) :
+    (PMF.uniformOfFintype Block).toOuterMeasure (forbidden : Set Block) =
+      (forbidden.card : ENNReal) * Inv.inv (↑(2 ^ blockBits : Nat) : ENNReal) := by
+  rw [PMF.toOuterMeasure_uniformOfFintype_apply, blockCard]
+  simp [div_eq_mul_inv]
+
+/-- A set of at most `count` forbidden blocks has at most `count / 2^128` mass. -/
+theorem uniformBlockFinsetMass_le (forbidden : Finset Block) (count : Nat)
+    (cardBound : forbidden.card ≤ count) :
+    (PMF.uniformOfFintype Block).toOuterMeasure (forbidden : Set Block) ≤
+      (count : ENNReal) * Inv.inv (↑(2 ^ blockBits : Nat) : ENNReal) := by
+  rw [uniformBlockFinsetMass]
+  exact mul_le_mul_right' (by exact_mod_cast cardBound) _
+
+/-- The event for either of two forbidden blocks has at most `2 / 2^128` mass. -/
+theorem uniformBlockTwoPointEvent_le (first second : Block) :
+    (PMF.uniformOfFintype Block).toOuterMeasure
+        ({first, second} : Finset Block) ≤
+      2 * Inv.inv (↑(2 ^ blockBits : Nat) : ENNReal) := by
+  apply uniformBlockFinsetMass_le _ 2
+  exact Finset.card_le_two
+
 /-- The paper base-`(2 - omega)` case uses 92 active inputs per bucket. -/
 def paperActiveInputsPerBucket : Nat := 92
 

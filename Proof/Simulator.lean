@@ -28,6 +28,60 @@ theorem map_uniformOfFintype_equiv
   exact (tsum_ite_eq (equivalence.symm output)
     (Inv.inv (Fintype.card Sample : ENNReal))).symm
 
+/-- This predicate requires safety only on one program's reachable query path. -/
+def OracleProgramSafe
+    {oracle : OracleSpec.{uQuery, uAnswer}} {Result : Type uResult}
+    {State : Type uStateOne}
+    (handler : OracleHandler oracle State)
+    (safe : (query : oracle.Query) → State → Prop) :
+    {budget : Nat} → OracleProgram oracle Result budget → State → Prop
+  | _, .pure _, _ => True
+  | _, .query request next, state =>
+      let answered := handler request state
+      safe request state ∧ OracleProgramSafe handler safe (next answered.1) answered.2
+  | _, .sample _ next, state =>
+      ∀ value, OracleProgramSafe handler safe (next value) state
+
+/-- A path-safe handler equivalence lifts through one oracle program. -/
+theorem oracleProgram_run_stateEquiv_of_safe
+    {oracle : OracleSpec.{uQuery, uAnswer}} {Result : Type uResult}
+    {StateOne : Type uStateOne} {StateTwo : Type uStateTwo}
+    (handlerOne : OracleHandler oracle StateOne)
+    (handlerTwo : OracleHandler oracle StateTwo)
+    (stateEquiv : StateOne ≃ StateTwo)
+    (safe : (query : oracle.Query) → StateOne → Prop)
+    (handlerEquiv : ∀ query state, safe query state →
+      (handlerOne query state).1 =
+          (handlerTwo query (stateEquiv state)).1 ∧
+        stateEquiv (handlerOne query state).2 =
+          (handlerTwo query (stateEquiv state)).2)
+    {budget : Nat} (program : OracleProgram oracle Result budget)
+    (state : StateOne) (programSafe : OracleProgramSafe handlerOne safe program state) :
+    (program.run handlerOne state).map
+        (fun output => (output.1, stateEquiv output.2)) =
+      program.run handlerTwo (stateEquiv state) := by
+  induction program generalizing state with
+  | pure result =>
+      rw [OracleProgram.run, OracleProgram.run, PMF.map_comp]
+      congr 1
+  | query request next inductionHypothesis =>
+      simp only [OracleProgram.run]
+      have related := handlerEquiv request state programSafe.1
+      have tailSafe : OracleProgramSafe handlerOne safe
+          (next (handlerTwo request (stateEquiv state)).1)
+          (handlerOne request state).2 := by
+        rw [← related.1]
+        exact programSafe.2
+      rw [show (handlerOne request state).1 =
+        (handlerTwo request (stateEquiv state)).1 from related.1]
+      rw [inductionHypothesis _ _ tailSafe]
+      rw [related.2]
+  | sample distribution next inductionHypothesis =>
+      simp only [OracleProgram.run, PMF.map_bind]
+      congr 1
+      funext sample
+      exact inductionHypothesis sample state (programSafe sample)
+
 /-- A handler equivalence lifts through every oracle program. -/
 theorem oracleProgram_run_stateEquiv
     {oracle : OracleSpec.{uQuery, uAnswer}} {Result : Type uResult}
@@ -332,6 +386,80 @@ theorem updateProgramPair_apply_of_ne
     (updateProgramPair input (oracle, target)).1 current = oracle current := by
   simp [updateProgramPair, different]
 
+/-- This map embeds one fixed-key swap into the complete simulator state. -/
+def swapFixedStateTarget (index : Pipeline.FixedKeyIndex) (input : Block) :
+    SimulatorState × Block → SimulatorState × Block :=
+  fun sample =>
+    ({ sample.1 with
+        fixedOracle := programPermutation sample.1.fixedOracle index input sample.2 },
+      sample.1.fixedOracle.permutation index input)
+
+/-- The fixed-key state swap is an involution. -/
+theorem swapFixedStateTarget_involutive
+    (index : Pipeline.FixedKeyIndex) (input : Block) :
+    Function.Involutive (swapFixedStateTarget index input) := by
+  intro sample
+  rcases sample with ⟨state, target⟩
+  have pairRestored := swapProgramPair_involutive index input
+    (state.fixedOracle, target)
+  refine Prod.ext ?_ ?_
+  · cases state with
+    | mk fixedOracle encOracle hashOracle fixedTranscript encTranscript
+        hashTranscript commitments linking bad =>
+      change SimulatorState.mk _ encOracle hashOracle fixedTranscript
+        encTranscript hashTranscript commitments linking bad =
+          SimulatorState.mk fixedOracle encOracle hashOracle fixedTranscript
+            encTranscript hashTranscript commitments linking bad
+      rw [SimulatorState.mk.injEq]
+      exact ⟨congrArg Prod.fst pairRestored, rfl, rfl, rfl, rfl,
+        rfl, rfl, rfl, rfl⟩
+  · change (swapProgramPair index input
+      (swapProgramPair index input (state.fixedOracle, target))).2 = target
+    exact congrArg Prod.snd pairRestored
+
+/-- This equivalence contains one fixed-key swap on simulator state. -/
+noncomputable def swapFixedStateTargetEquiv
+    (index : Pipeline.FixedKeyIndex) (input : Block) :
+    (SimulatorState × Block) ≃ (SimulatorState × Block) :=
+  (swapFixedStateTarget_involutive index input).toPerm
+
+/-- This map embeds one hash update into the complete simulator state. -/
+def swapHashStateTarget (input : BaseField) :
+    SimulatorState × (Block × Block) →
+      SimulatorState × (Block × Block) :=
+  fun sample =>
+    ({ sample.1 with
+        hashOracle := Function.update sample.1.hashOracle input sample.2 },
+      sample.1.hashOracle input)
+
+/-- The hash state swap is an involution. -/
+theorem swapHashStateTarget_involutive (input : BaseField) :
+    Function.Involutive (swapHashStateTarget input) := by
+  intro sample
+  rcases sample with ⟨state, target⟩
+  have pairRestored := updateProgramPair_involutive input
+    (state.hashOracle, target)
+  refine Prod.ext ?_ ?_
+  · cases state with
+    | mk fixedOracle encOracle hashOracle fixedTranscript encTranscript
+        hashTranscript commitments linking bad =>
+      change SimulatorState.mk fixedOracle encOracle _ fixedTranscript
+        encTranscript hashTranscript commitments linking bad =
+          SimulatorState.mk fixedOracle encOracle hashOracle fixedTranscript
+            encTranscript hashTranscript commitments linking bad
+      rw [SimulatorState.mk.injEq]
+      exact ⟨rfl, rfl, congrArg Prod.fst pairRestored, rfl, rfl,
+        rfl, rfl, rfl, rfl⟩
+  · change (updateProgramPair input
+      (updateProgramPair input (state.hashOracle, target))).2 = target
+    exact congrArg Prod.snd pairRestored
+
+/-- This equivalence contains one hash update on simulator state. -/
+noncomputable def swapHashStateTargetEquiv (input : BaseField) :
+    (SimulatorState × (Block × Block)) ≃
+      (SimulatorState × (Block × Block)) :=
+  (swapHashStateTarget_involutive input).toPerm
+
 /-- This type contains one fresh hash target that matches a fixed transcript. -/
 def FreshHashProgrammingSample (history : List HashRecord)
     (input : BaseField) :=
@@ -583,6 +711,30 @@ def SimulatorInvariant (state : SimulatorState) : Prop :=
     PermutationTranscriptMatches state.encOracle state.encTranscript ∧
       HashTranscriptMatches state.hashOracle state.hashTranscript ∧
       DistinctCommitments state.commitments
+
+/-- A fresh fixed-key state swap preserves the shared invariant. -/
+theorem swapFixedStateTarget_preservesInvariant
+    (state : SimulatorState) (target : Block)
+    (index : Pipeline.FixedKeyIndex) (input : Block)
+    (invariant : SimulatorInvariant state)
+    (fresh : FreshPermutationPair state.fixedTranscript index input target) :
+    SimulatorInvariant (swapFixedStateTarget index input (state, target)).1 := by
+  refine ⟨?_, invariant.2⟩
+  intro record member
+  exact programPermutation_preserves state.fixedOracle index input target record
+    (invariant.1 record member) (fresh record member)
+
+/-- A fresh hash state swap preserves the shared invariant. -/
+theorem swapHashStateTarget_preservesInvariant
+    (state : SimulatorState) (target : Block × Block)
+    (input : BaseField) (invariant : SimulatorInvariant state)
+    (fresh : FreshHashInput state.hashTranscript input) :
+    SimulatorInvariant (swapHashStateTarget input (state, target)).1 := by
+  refine ⟨invariant.1, invariant.2.1, ?_, invariant.2.2.2⟩
+  intro record member
+  change Function.update state.hashOracle input target record.input = record.output
+  rw [Function.update_of_ne (fresh record member)]
+  exact invariant.2.2.1 record member
 
 /-- The shared invariant gives consistent public-oracle transcripts. -/
 theorem SimulatorInvariant.transcriptsConsistent {state : SimulatorState}
@@ -875,6 +1027,147 @@ def idealOracleHandler : OracleHandler Garbling.oracleSpec SimulatorState :=
 /-- This handler records every construction query. -/
 def constructionOracleHandler : OracleHandler Garbling.oracleSpec SimulatorState :=
   oracleHandlerFor .construction
+
+/-- This handler carries one programming target without changing it. -/
+def carrySimulatorHandler {Target : Type}
+    (handler : OracleHandler Garbling.oracleSpec SimulatorState) :
+    OracleHandler Garbling.oracleSpec (SimulatorState × Target)
+  | query, sample =>
+      let answered := handler query sample.1
+      (answered.1, (answered.2, sample.2))
+
+/-- This condition excludes the two fixed-key swap collision points. -/
+def FixedQuerySafe (oracle : PermutationOracle Pipeline.FixedKeyIndex Block)
+    (index : Pipeline.FixedKeyIndex) (input target : Block) :
+    Garbling.OracleQuery → Prop
+  | .fixedForward current domain => current = index →
+      domain ≠ input ∧ oracle.permutation current domain ≠ target
+  | .fixedInverse current range => current = index →
+      range ≠ oracle.permutation current input ∧ range ≠ target
+  | _ => True
+
+/-- A safe ideal query commutes with one fixed-key state swap. -/
+theorem carryIdealHandler_swapFixed
+    (index : Pipeline.FixedKeyIndex) (input : Block)
+    (sample : SimulatorState × Block) (query : Garbling.OracleQuery)
+    (safe : FixedQuerySafe sample.1.fixedOracle index input sample.2 query) :
+    let original := carrySimulatorHandler idealOracleHandler query sample
+    let swapped := carrySimulatorHandler idealOracleHandler query
+      (swapFixedStateTarget index input sample)
+    original.1 = swapped.1 ∧
+      swapFixedStateTarget index input original.2 = swapped.2 := by
+  rcases sample with ⟨state, target⟩
+  cases query with
+  | fixedForward current domain =>
+      have answerEq := programPermutation_forward_eq_of_fresh
+        state.fixedOracle index input target current domain safe
+      simp only [carrySimulatorHandler, idealOracleHandler, oracleHandlerFor,
+        swapFixedStateTarget]
+      rw [answerEq]
+      constructor
+      · rfl
+      · rfl
+  | fixedInverse current range =>
+      have answerEq := programPermutation_inverse_eq_of_fresh
+        state.fixedOracle index input target current range safe
+      simp only [carrySimulatorHandler, idealOracleHandler, oracleHandlerFor,
+        swapFixedStateTarget]
+      rw [answerEq]
+      constructor
+      · rfl
+      · rfl
+  | encForward current domain =>
+      simp [carrySimulatorHandler, idealOracleHandler, oracleHandlerFor,
+        swapFixedStateTarget, recordEnc]
+  | encInverse current range =>
+      simp [carrySimulatorHandler, idealOracleHandler, oracleHandlerFor,
+        swapFixedStateTarget, recordEnc]
+  | hash current =>
+      simp [carrySimulatorHandler, idealOracleHandler, oracleHandlerFor,
+        swapFixedStateTarget, recordHash]
+
+/-- This condition excludes the programmed hash input. -/
+def HashQuerySafe (input : BaseField) : Garbling.OracleQuery → Prop
+  | .hash current => current ≠ input
+  | _ => True
+
+/-- A safe ideal query commutes with one hash state swap. -/
+theorem carryIdealHandler_swapHash
+    (input : BaseField) (sample : SimulatorState × (Block × Block))
+    (query : Garbling.OracleQuery) (safe : HashQuerySafe input query) :
+    let original := carrySimulatorHandler idealOracleHandler query sample
+    let swapped := carrySimulatorHandler idealOracleHandler query
+      (swapHashStateTarget input sample)
+    original.1 = swapped.1 ∧
+      swapHashStateTarget input original.2 = swapped.2 := by
+  rcases sample with ⟨state, target⟩
+  cases query with
+  | fixedForward current domain =>
+      simp [carrySimulatorHandler, idealOracleHandler, oracleHandlerFor,
+        swapHashStateTarget, recordFixed]
+  | fixedInverse current range =>
+      simp [carrySimulatorHandler, idealOracleHandler, oracleHandlerFor,
+        swapHashStateTarget, recordFixed]
+  | encForward current domain =>
+      simp [carrySimulatorHandler, idealOracleHandler, oracleHandlerFor,
+        swapHashStateTarget, recordEnc]
+  | encInverse current range =>
+      simp [carrySimulatorHandler, idealOracleHandler, oracleHandlerFor,
+        swapHashStateTarget, recordEnc]
+  | hash current =>
+      have answerEq := updateProgramPair_apply_of_ne state.hashOracle
+        input target current safe
+      have answerEq' : Function.update state.hashOracle input target current =
+          state.hashOracle current := by
+        simpa [updateProgramPair] using answerEq
+      simp only [carrySimulatorHandler, idealOracleHandler, oracleHandlerFor,
+        swapHashStateTarget]
+      rw [answerEq']
+      simp [recordHash]
+
+/-- A path-safe adversary program commutes with one fixed-key state swap. -/
+theorem oracleProgram_run_swapFixed_of_safe
+    {Result : Type uResult} {budget : Nat}
+    (index : Pipeline.FixedKeyIndex) (input : Block)
+    (program : OracleProgram Garbling.oracleSpec Result budget)
+    (sample : SimulatorState × Block)
+    (programSafe : OracleProgramSafe
+      (carrySimulatorHandler idealOracleHandler)
+      (fun query state =>
+        FixedQuerySafe state.1.fixedOracle index input state.2 query)
+      program sample) :
+    (program.run (carrySimulatorHandler idealOracleHandler) sample).map
+        (fun output => (output.1, swapFixedStateTarget index input output.2)) =
+      program.run (carrySimulatorHandler idealOracleHandler)
+        (swapFixedStateTarget index input sample) := by
+  exact oracleProgram_run_stateEquiv_of_safe
+    (carrySimulatorHandler idealOracleHandler)
+    (carrySimulatorHandler idealOracleHandler)
+    (swapFixedStateTargetEquiv index input)
+    (fun query state =>
+      FixedQuerySafe state.1.fixedOracle index input state.2 query)
+    (fun query state safe => carryIdealHandler_swapFixed index input state query safe)
+    program sample programSafe
+
+/-- A path-safe adversary program commutes with one hash state swap. -/
+theorem oracleProgram_run_swapHash_of_safe
+    {Result : Type uResult} {budget : Nat} (input : BaseField)
+    (program : OracleProgram Garbling.oracleSpec Result budget)
+    (sample : SimulatorState × (Block × Block))
+    (programSafe : OracleProgramSafe
+      (carrySimulatorHandler idealOracleHandler)
+      (fun query _ => HashQuerySafe input query) program sample) :
+    (program.run (carrySimulatorHandler idealOracleHandler) sample).map
+        (fun output => (output.1, swapHashStateTarget input output.2)) =
+      program.run (carrySimulatorHandler idealOracleHandler)
+        (swapHashStateTarget input sample) := by
+  exact oracleProgram_run_stateEquiv_of_safe
+    (carrySimulatorHandler idealOracleHandler)
+    (carrySimulatorHandler idealOracleHandler)
+    (swapHashStateTargetEquiv input)
+    (fun query _ => HashQuerySafe input query)
+    (fun query state safe => carryIdealHandler_swapHash input state query safe)
+    program sample programSafe
 
 /-- Every public-oracle query preserves the shared invariant. -/
 theorem oracleHandlerFor_preservesInvariant (origin : PermutationOrigin)
