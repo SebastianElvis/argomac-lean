@@ -19,6 +19,13 @@ def programFixedSlot (state : SimulatorState) (location : Pipeline.FixedKeyLocat
     (window : Nat) (slot : Pipeline.FixedKeySlot) (label block : Block) : SimulatorState :=
   tryProgramFixed state (fixedKeyIndex location window slot) label (block ^^^ label)
 
+def fixedProgramRecord (location : Pipeline.FixedKeyLocation) (window : Nat)
+    (slot : Pipeline.FixedKeySlot) (label block : Block) :
+    PermutationRecord Pipeline.FixedKeyIndex Block :=
+  { action := .program, origin := .simulator,
+    index := fixedKeyIndex location window slot,
+    domain := label, range := block ^^^ label }
+
 def programHashGate (state : SimulatorState) (location : Pipeline.FixedKeyLocation)
     (window : Nat) (label : Block) (blocks : Fin 3 → Block) : SimulatorState :=
   let first := programFixedSlot state location window (.hash 0) label (blocks 0)
@@ -193,6 +200,69 @@ theorem recordGateConstructionQueries_origin (state : SimulatorState)
   simp [recordGateConstructionQueries, recordConstructionFixed,
     constructionOracleHandler, oracleHandlerFor, recordFixed]
 
+/-- Matching selected hash records make one false gate return its target. -/
+theorem hashGate_evaluate_of_matches
+    (oracle : PermutationOracle Pipeline.FixedKeyIndex Block)
+    (location : Pipeline.FixedKeyLocation) (window : Nat) (label : Block)
+    (table : BitAdaptor.Table) (target : BaseField) (blocks : Fin 3 → Block)
+    (blocksTarget : ((blocks 2 ++ blocks 1 ++ blocks 0).toNat : BaseField) = target)
+    (matchPoints : ∀ slot, oracle.permutation
+      (fixedKeyIndex location window (.hash slot)) label = blocks slot ^^^ label) :
+    BitAdaptor.evaluate (Pipeline.fixedKeyWindow oracle location window)
+      table false label = target := by
+  have hash (slot : Fin 3) : daviesMeyer
+      (oracle.permutation (fixedKeyIndex location window (.hash slot))) label =
+      blocks slot := by
+    change Cryptography.xor
+      (oracle.permutation (fixedKeyIndex location window (.hash slot)) label) label =
+      blocks slot
+    rw [matchPoints slot, Cryptography.xor, BitVec.xor_assoc,
+      BitVec.xor_self, BitVec.xor_zero]
+  change ((daviesMeyer _ label ++ daviesMeyer _ label ++ daviesMeyer _ label).toNat :
+    BaseField) = target
+  rw [show daviesMeyer _ label = blocks 2 by
+      simpa [Pipeline.fixedKeyPermutations, fixedKeyIndex] using hash 2]
+  rw [show daviesMeyer _ label = blocks 1 by
+      simpa [Pipeline.fixedKeyPermutations, fixedKeyIndex] using hash 1]
+  rw [show daviesMeyer _ label = blocks 0 by
+      simpa [Pipeline.fixedKeyPermutations, fixedKeyIndex] using hash 0]
+  exact blocksTarget
+
+/-- Matching selected pad records make one true gate return its target. -/
+theorem padGate_evaluate_of_matches
+    (oracle : PermutationOracle Pipeline.FixedKeyIndex Block)
+    (location : Pipeline.FixedKeyLocation) (window : Nat) (label : Block)
+    (table : BitAdaptor.Table) (target : BaseField) (blocks : Fin 2 → Block)
+    (blocksTarget : blocks 1 ++ blocks 0 =
+      table.trueRow ^^^ BitAdaptor.fieldBytes target)
+    (matchPoints : ∀ slot, oracle.permutation
+      (fixedKeyIndex location window (.pad slot)) label = blocks slot ^^^ label) :
+    BitAdaptor.evaluate (Pipeline.fixedKeyWindow oracle location window)
+      table true label = target := by
+  have pad (slot : Fin 2) : daviesMeyer
+      (oracle.permutation (fixedKeyIndex location window (.pad slot))) label =
+      blocks slot := by
+    change Cryptography.xor
+      (oracle.permutation (fixedKeyIndex location window (.pad slot)) label) label =
+      blocks slot
+    rw [matchPoints slot, Cryptography.xor, BitVec.xor_assoc,
+      BitVec.xor_self, BitVec.xor_zero]
+  change (((daviesMeyer _ label ++ daviesMeyer _ label) ^^^ table.trueRow).toNat :
+    BaseField) = target
+  rw [show daviesMeyer _ label = blocks 1 by
+      simpa [Pipeline.fixedKeyPermutations, fixedKeyIndex] using pad 1]
+  rw [show daviesMeyer _ label = blocks 0 by
+      simpa [Pipeline.fixedKeyPermutations, fixedKeyIndex] using pad 0]
+  rw [blocksTarget]
+  rw [show (table.trueRow ^^^ BitAdaptor.fieldBytes target) ^^^ table.trueRow =
+      BitAdaptor.fieldBytes target by
+    rw [BitVec.xor_comm table.trueRow, BitVec.xor_assoc,
+      BitVec.xor_self, BitVec.xor_zero]]
+  simp only [BitAdaptor.fieldBytes, BitVec.toNat_ofNat]
+  rw [Nat.mod_eq_of_lt]
+  · exact ZMod.natCast_zmod_val target
+  · exact lt_trans target.val_lt (by decide)
+
 theorem programHashGate_evaluate (state : SimulatorState)
     (location : Pipeline.FixedKeyLocation) (window : Nat) (label : Block)
     (table : BitAdaptor.Table) (target : BaseField) (blocks : Fin 3 → Block)
@@ -224,39 +294,14 @@ theorem programHashGate_evaluate (state : SimulatorState)
     (blocks 0 ^^^ label) label (blocks 2 ^^^ label) (by simp [index0, index2, fixedKeyIndex]) point0'
   have point1' := tryProgramFixed_preservesOther state1 index1 index2 label
     (blocks 1 ^^^ label) label (blocks 2 ^^^ label) (by simp [index1, index2, fixedKeyIndex]) point1
-  have hash0 : daviesMeyer
-      ((programHashGate state location window label blocks).fixedOracle.permutation index0)
-      label = blocks 0 := by
-    change Cryptography.xor
-      (((tryProgramFixed state1 index2 label (blocks 2 ^^^ label)).fixedOracle.permutation index0)
-        label) label = blocks 0
-    rw [point0'', Cryptography.xor, BitVec.xor_assoc,
-      BitVec.xor_self, BitVec.xor_zero]
-  have hash1 : daviesMeyer
-      ((programHashGate state location window label blocks).fixedOracle.permutation index1)
-      label = blocks 1 := by
-    change Cryptography.xor
-      (((tryProgramFixed state1 index2 label (blocks 2 ^^^ label)).fixedOracle.permutation index1)
-        label) label = blocks 1
-    rw [point1', Cryptography.xor, BitVec.xor_assoc,
-      BitVec.xor_self, BitVec.xor_zero]
-  have hash2 : daviesMeyer
-      ((programHashGate state location window label blocks).fixedOracle.permutation index2)
-      label = blocks 2 := by
-    change Cryptography.xor
-      (((tryProgramFixed state1 index2 label (blocks 2 ^^^ label)).fixedOracle.permutation index2)
-        label) label = blocks 2
-    rw [point2, Cryptography.xor, BitVec.xor_assoc,
-      BitVec.xor_self, BitVec.xor_zero]
-  change ((daviesMeyer _ label ++ daviesMeyer _ label ++ daviesMeyer _ label).toNat :
-    BaseField) = target
-  rw [show daviesMeyer _ label = blocks 2 by
-      simpa [index2, fixedKeyIndex] using hash2]
-  rw [show daviesMeyer _ label = blocks 1 by
-      simpa [index1, fixedKeyIndex] using hash1]
-  rw [show daviesMeyer _ label = blocks 0 by
-      simpa [index0, fixedKeyIndex] using hash0]
-  exact blocksTarget
+  apply hashGate_evaluate_of_matches
+    (programHashGate state location window label blocks).fixedOracle
+    location window label table target blocks blocksTarget
+  intro slot
+  fin_cases slot
+  · simpa [programHashGate, index0, index1, index2, state0, state1] using point0''
+  · simpa [programHashGate, index0, index1, index2, state0, state1] using point1'
+  · simpa [programHashGate, index0, index1, index2, state0, state1] using point2
 
 theorem programPadGate_evaluate (state : SimulatorState)
     (location : Pipeline.FixedKeyLocation) (window : Nat) (label : Block)
@@ -277,37 +322,13 @@ theorem programPadGate_evaluate (state : SimulatorState)
     (blocks 1 ^^^ label) notBad
   have point0' := tryProgramFixed_preservesOther state0 index0 index1 label
     (blocks 0 ^^^ label) label (blocks 1 ^^^ label) (by simp [index0, index1, fixedKeyIndex]) point0
-  have pad0 : daviesMeyer
-      ((programPadGate state location window label blocks).fixedOracle.permutation index0)
-      label = blocks 0 := by
-    change Cryptography.xor
-      (((tryProgramFixed state0 index1 label (blocks 1 ^^^ label)).fixedOracle.permutation index0)
-        label) label = blocks 0
-    rw [point0', Cryptography.xor, BitVec.xor_assoc,
-      BitVec.xor_self, BitVec.xor_zero]
-  have pad1 : daviesMeyer
-      ((programPadGate state location window label blocks).fixedOracle.permutation index1)
-      label = blocks 1 := by
-    change Cryptography.xor
-      (((tryProgramFixed state0 index1 label (blocks 1 ^^^ label)).fixedOracle.permutation index1)
-        label) label = blocks 1
-    rw [point1, Cryptography.xor, BitVec.xor_assoc,
-      BitVec.xor_self, BitVec.xor_zero]
-  change (((daviesMeyer _ label ++ daviesMeyer _ label) ^^^ table.trueRow).toNat :
-    BaseField) = target
-  rw [show daviesMeyer _ label = blocks 1 by
-      simpa [index1, fixedKeyIndex] using pad1]
-  rw [show daviesMeyer _ label = blocks 0 by
-      simpa [index0, fixedKeyIndex] using pad0]
-  rw [blocksTarget]
-  rw [show (table.trueRow ^^^ BitAdaptor.fieldBytes target) ^^^ table.trueRow =
-      BitAdaptor.fieldBytes target by
-    rw [BitVec.xor_comm table.trueRow, BitVec.xor_assoc,
-      BitVec.xor_self, BitVec.xor_zero]]
-  simp only [BitAdaptor.fieldBytes, BitVec.toNat_ofNat]
-  rw [Nat.mod_eq_of_lt]
-  · exact ZMod.natCast_zmod_val target
-  · exact lt_trans target.val_lt (by decide)
+  apply padGate_evaluate_of_matches
+    (programPadGate state location window label blocks).fixedOracle
+    location window label table target blocks blocksTarget
+  intro slot
+  fin_cases slot
+  · simpa [programPadGate, index0, index1, state0] using point0'
+  · simpa [programPadGate, index0, index1, state0] using point1
 
 /-- One programmed gate evaluates to its selected target. -/
 theorem programGate_evaluate (state : SimulatorState)
@@ -457,10 +478,50 @@ def GateDirective.apply (directive : GateDirective)
 def GateDirective.activeSlotCount (directive : GateDirective) : Nat :=
   if directive.bit then 2 else 3
 
+/-- These are the selected records for one gate. -/
+def GateDirective.programRecords (directive : GateDirective) :
+    List (PermutationRecord Pipeline.FixedKeyIndex Block) :=
+  if directive.bit then
+    [fixedProgramRecord directive.location directive.window (.pad 1) directive.label
+      (targetPadBlocks directive.table directive.target 1),
+    fixedProgramRecord directive.location directive.window (.pad 0) directive.label
+      (targetPadBlocks directive.table directive.target 0)]
+  else
+    [fixedProgramRecord directive.location directive.window (.hash 2) directive.label
+      (liftHashBlocks directive.lift.1 2),
+    fixedProgramRecord directive.location directive.window (.hash 1) directive.label
+      (liftHashBlocks directive.lift.1 1),
+    fixedProgramRecord directive.location directive.window (.hash 0) directive.label
+      (liftHashBlocks directive.lift.1 0)]
+
+def GateDirective.Satisfied (directive : GateDirective)
+    (state : SimulatorState) : Prop :=
+  BitAdaptor.evaluate
+    (Pipeline.fixedKeyWindow state.fixedOracle directive.location directive.window)
+    directive.table directive.bit directive.label = directive.target
+
 /-- This operation applies the selected gate programs in order. -/
 def programGateSchedule (state : SimulatorState)
     (schedule : List GateDirective) : SimulatorState :=
   schedule.foldl (fun current directive => directive.apply current) state
+
+/-- This operation prepends each selected gate record in schedule order. -/
+def gateScheduleProgramRecords
+    (initial : List (PermutationRecord Pipeline.FixedKeyIndex Block))
+    (schedule : List GateDirective) :
+    List (PermutationRecord Pipeline.FixedKeyIndex Block) :=
+  schedule.foldl (fun records directive => directive.programRecords ++ records) initial
+
+theorem gateScheduleProgramRecords_suffix
+    (initial : List (PermutationRecord Pipeline.FixedKeyIndex Block))
+    (schedule : List GateDirective) :
+    initial <:+ gateScheduleProgramRecords initial schedule := by
+  induction schedule generalizing initial with
+  | nil => simp [gateScheduleProgramRecords]
+  | cons directive remaining inductionHypothesis =>
+      rw [gateScheduleProgramRecords, List.foldl_cons]
+      exact (List.suffix_append directive.programRecords initial).trans
+        (inductionHypothesis (directive.programRecords ++ initial))
 
 /-- This predicate records freshness at each reached programming step. -/
 inductive GateScheduleFresh : SimulatorState → List GateDirective → Prop
@@ -476,6 +537,16 @@ inductive GateScheduleFresh : SimulatorState → List GateDirective → Prop
 def gateScheduleActiveSlotCount (schedule : List GateDirective) : Nat :=
   (schedule.map GateDirective.activeSlotCount).sum
 
+theorem programFixedSlot_fixedTranscript_of_fresh (state : SimulatorState)
+    (location : Pipeline.FixedKeyLocation) (window : Nat)
+    (slot : Pipeline.FixedKeySlot) (label block : Block)
+    (fresh : FreshPermutationPair state.fixedTranscript
+      (fixedKeyIndex location window slot) label (block ^^^ label)) :
+    (programFixedSlot state location window slot label block).fixedTranscript =
+      fixedProgramRecord location window slot label block :: state.fixedTranscript := by
+  have checked := (freshPermutationPairCheck_eq_true _ _ _ _).2 fresh
+  simp [programFixedSlot, tryProgramFixed, checked, programFixed, fixedProgramRecord]
+
 theorem programFixedSlot_fixedTranscript_length_of_fresh (state : SimulatorState)
     (location : Pipeline.FixedKeyLocation) (window : Nat)
     (slot : Pipeline.FixedKeySlot) (label block : Block)
@@ -483,8 +554,107 @@ theorem programFixedSlot_fixedTranscript_length_of_fresh (state : SimulatorState
       (fixedKeyIndex location window slot) label (block ^^^ label)) :
     (programFixedSlot state location window slot label block).fixedTranscript.length =
       state.fixedTranscript.length + 1 := by
-  have checked := (freshPermutationPairCheck_eq_true _ _ _ _).2 fresh
-  simp [programFixedSlot, tryProgramFixed, checked, programFixed]
+  rw [programFixedSlot_fixedTranscript_of_fresh state location window slot label block fresh]
+  simp
+
+theorem programHashGate_fixedTranscript_of_fresh (state : SimulatorState)
+    (location : Pipeline.FixedKeyLocation) (window : Nat)
+    (label : Block) (blocks : Fin 3 → Block)
+    (fresh : HashGateFresh state location window label blocks) :
+    (programHashGate state location window label blocks).fixedTranscript =
+      fixedProgramRecord location window (.hash 2) label (blocks 2) ::
+      fixedProgramRecord location window (.hash 1) label (blocks 1) ::
+      fixedProgramRecord location window (.hash 0) label (blocks 0) ::
+      state.fixedTranscript := by
+  simp only [HashGateFresh] at fresh
+  rcases fresh with ⟨firstFresh, secondFresh, thirdFresh⟩
+  let first := programFixedSlot state location window (.hash 0) label (blocks 0)
+  let second := programFixedSlot first location window (.hash 1) label (blocks 1)
+  calc
+    (programHashGate state location window label blocks).fixedTranscript =
+        fixedProgramRecord location window (.hash 2) label (blocks 2) ::
+          second.fixedTranscript :=
+      programFixedSlot_fixedTranscript_of_fresh second location window (.hash 2)
+        label (blocks 2) thirdFresh
+    _ = fixedProgramRecord location window (.hash 2) label (blocks 2) ::
+        fixedProgramRecord location window (.hash 1) label (blocks 1) ::
+          first.fixedTranscript := by
+      rw [programFixedSlot_fixedTranscript_of_fresh first location window (.hash 1)
+        label (blocks 1) secondFresh]
+    _ = _ := by
+      rw [programFixedSlot_fixedTranscript_of_fresh state location window (.hash 0)
+        label (blocks 0) firstFresh]
+
+theorem programPadGate_fixedTranscript_of_fresh (state : SimulatorState)
+    (location : Pipeline.FixedKeyLocation) (window : Nat)
+    (label : Block) (blocks : Fin 2 → Block)
+    (fresh : PadGateFresh state location window label blocks) :
+    (programPadGate state location window label blocks).fixedTranscript =
+      fixedProgramRecord location window (.pad 1) label (blocks 1) ::
+      fixedProgramRecord location window (.pad 0) label (blocks 0) ::
+      state.fixedTranscript := by
+  simp only [PadGateFresh] at fresh
+  rcases fresh with ⟨firstFresh, secondFresh⟩
+  let first := programFixedSlot state location window (.pad 0) label (blocks 0)
+  calc
+    (programPadGate state location window label blocks).fixedTranscript =
+        fixedProgramRecord location window (.pad 1) label (blocks 1) ::
+          first.fixedTranscript :=
+      programFixedSlot_fixedTranscript_of_fresh first location window (.pad 1)
+        label (blocks 1) secondFresh
+    _ = _ := by
+      rw [programFixedSlot_fixedTranscript_of_fresh state location window (.pad 0)
+        label (blocks 0) firstFresh]
+
+theorem GateDirective.apply_fixedTranscript_of_fresh
+    (directive : GateDirective) (state : SimulatorState)
+    (fresh : GateFresh state directive.location directive.window directive.bit
+      directive.label (liftHashBlocks directive.lift.1)
+      (targetPadBlocks directive.table directive.target)) :
+    (directive.apply state).fixedTranscript =
+      directive.programRecords ++ state.fixedTranscript := by
+  cases bit : directive.bit
+  · simpa [GateDirective.apply, GateDirective.programRecords, programGateForTarget,
+      programGate, bit] using
+        programHashGate_fixedTranscript_of_fresh state directive.location directive.window
+          directive.label (liftHashBlocks directive.lift.1) (by
+            simpa [GateFresh, bit] using fresh)
+  · simpa [GateDirective.apply, GateDirective.programRecords, programGateForTarget,
+      programGate, bit] using
+        programPadGate_fixedTranscript_of_fresh state directive.location directive.window
+          directive.label (targetPadBlocks directive.table directive.target) (by
+            simpa [GateFresh, bit] using fresh)
+
+/-- Matching selected records make one gate return its target. -/
+theorem GateDirective.satisfied_of_programRecords
+    (directive : GateDirective) (state : SimulatorState)
+    (invariant : SimulatorInvariant state)
+    (records : ∀ record ∈ directive.programRecords,
+      record ∈ state.fixedTranscript) :
+    directive.Satisfied state := by
+  unfold GateDirective.Satisfied
+  cases bit : directive.bit
+  · apply hashGate_evaluate_of_matches state.fixedOracle directive.location
+      directive.window directive.label directive.table directive.target
+      (liftHashBlocks directive.lift.1)
+    · rw [liftHashBlocks_value]
+      exact directive.lift.2
+    · intro slot
+      have member : fixedProgramRecord directive.location directive.window (.hash slot)
+          directive.label (liftHashBlocks directive.lift.1 slot) ∈
+          directive.programRecords := by
+        fin_cases slot <;> simp [GateDirective.programRecords, bit]
+      simpa [fixedProgramRecord] using invariant.1 _ (records _ member)
+  · apply padGate_evaluate_of_matches state.fixedOracle directive.location
+      directive.window directive.label directive.table directive.target
+      (targetPadBlocks directive.table directive.target)
+    · exact targetPadBlocks_value directive.table directive.target
+    · intro slot
+      have member : fixedProgramRecord directive.location directive.window (.pad slot)
+          directive.label (targetPadBlocks directive.table directive.target slot) ∈
+          directive.programRecords := by
+        fin_cases slot <;> simp [GateDirective.programRecords, bit]
+      simpa [fixedProgramRecord] using invariant.1 _ (records _ member)
 
 theorem programHashGate_fixedTranscript_length_of_fresh (state : SimulatorState)
     (location : Pipeline.FixedKeyLocation) (window : Nat)
@@ -492,21 +662,8 @@ theorem programHashGate_fixedTranscript_length_of_fresh (state : SimulatorState)
     (fresh : HashGateFresh state location window label blocks) :
     (programHashGate state location window label blocks).fixedTranscript.length =
       state.fixedTranscript.length + 3 := by
-  simp only [HashGateFresh] at fresh
-  rcases fresh with ⟨firstFresh, secondFresh, thirdFresh⟩
-  let first := programFixedSlot state location window (.hash 0) label (blocks 0)
-  let second := programFixedSlot first location window (.hash 1) label (blocks 1)
-  calc
-    (programHashGate state location window label blocks).fixedTranscript.length =
-        second.fixedTranscript.length + 1 :=
-      programFixedSlot_fixedTranscript_length_of_fresh second location window (.hash 2)
-        label (blocks 2) thirdFresh
-    _ = first.fixedTranscript.length + 2 := by
-      rw [programFixedSlot_fixedTranscript_length_of_fresh first location window (.hash 1)
-        label (blocks 1) secondFresh]
-    _ = state.fixedTranscript.length + 3 := by
-      rw [programFixedSlot_fixedTranscript_length_of_fresh state location window (.hash 0)
-        label (blocks 0) firstFresh]
+  rw [programHashGate_fixedTranscript_of_fresh state location window label blocks fresh]
+  simp
 
 theorem programPadGate_fixedTranscript_length_of_fresh (state : SimulatorState)
     (location : Pipeline.FixedKeyLocation) (window : Nat)
@@ -514,17 +671,8 @@ theorem programPadGate_fixedTranscript_length_of_fresh (state : SimulatorState)
     (fresh : PadGateFresh state location window label blocks) :
     (programPadGate state location window label blocks).fixedTranscript.length =
       state.fixedTranscript.length + 2 := by
-  simp only [PadGateFresh] at fresh
-  rcases fresh with ⟨firstFresh, secondFresh⟩
-  let first := programFixedSlot state location window (.pad 0) label (blocks 0)
-  calc
-    (programPadGate state location window label blocks).fixedTranscript.length =
-        first.fixedTranscript.length + 1 :=
-      programFixedSlot_fixedTranscript_length_of_fresh first location window (.pad 1)
-        label (blocks 1) secondFresh
-    _ = state.fixedTranscript.length + 2 := by
-      rw [programFixedSlot_fixedTranscript_length_of_fresh state location window (.pad 0)
-        label (blocks 0) firstFresh]
+  rw [programPadGate_fixedTranscript_of_fresh state location window label blocks fresh]
+  simp
 
 theorem GateDirective.apply_fixedTranscript_length_of_fresh
     (directive : GateDirective) (state : SimulatorState)
@@ -570,6 +718,30 @@ theorem programGateSchedule_fixedTranscript_length_of_fresh
       rw [directive.apply_fixedTranscript_length_of_fresh state current]
       simp [gateScheduleActiveSlotCount]
       omega
+
+/-- A fresh schedule keeps the exact selected programming records. -/
+theorem programGateSchedule_fixedTranscript_of_fresh
+    {state : SimulatorState} {schedule : List GateDirective}
+    (fresh : GateScheduleFresh state schedule) :
+    (programGateSchedule state schedule).fixedTranscript =
+      gateScheduleProgramRecords state.fixedTranscript schedule := by
+  induction fresh with
+  | nil state => simp [programGateSchedule, gateScheduleProgramRecords]
+  | @cons state directive remaining current next inductionHypothesis =>
+      rw [programGateSchedule, List.foldl_cons]
+      change (programGateSchedule (directive.apply state) remaining).fixedTranscript = _
+      rw [inductionHypothesis]
+      rw [directive.apply_fixedTranscript_of_fresh state current]
+      rfl
+
+/-- A fresh schedule keeps every prior fixed-key record. -/
+theorem programGateSchedule_fixedTranscript_suffix_of_fresh
+    {state : SimulatorState} {schedule : List GateDirective}
+    (fresh : GateScheduleFresh state schedule) :
+    state.fixedTranscript <:+
+      (programGateSchedule state schedule).fixedTranscript := by
+  rw [programGateSchedule_fixedTranscript_of_fresh fresh]
+  exact gateScheduleProgramRecords_suffix state.fixedTranscript schedule
 
 theorem GateDirective.apply_preservesInvariant (directive : GateDirective)
     (state : SimulatorState) (invariant : SimulatorInvariant state) :
@@ -661,6 +833,15 @@ theorem programGateSchedule_fresh_of_notBad (state : SimulatorState)
   · exact (Bool.false_ne_true (notBad.symm.trans bad)).elim
   · exact fresh
 
+/-- A collision-free schedule keeps every prior fixed-key record. -/
+theorem programGateSchedule_fixedTranscript_suffix_of_notBad
+    (state : SimulatorState) (schedule : List GateDirective)
+    (notBad : (programGateSchedule state schedule).bad = false) :
+    state.fixedTranscript <:+
+      (programGateSchedule state schedule).fixedTranscript :=
+  programGateSchedule_fixedTranscript_suffix_of_fresh
+    (programGateSchedule_fresh_of_notBad state schedule notBad)
+
 /-- A collision-free schedule adds exactly its selected slot count. -/
 theorem programGateSchedule_fixedTranscript_length_of_notBad
     (state : SimulatorState) (schedule : List GateDirective)
@@ -678,5 +859,44 @@ theorem programGateSchedule_fixedTranscript_length_le_of_notBad
       state.fixedTranscript.length + 3 * schedule.length := by
   rw [programGateSchedule_fixedTranscript_length_of_notBad state schedule notBad]
   exact Nat.add_le_add_left (gateScheduleActiveSlotCount_le schedule) _
+
+def GateScheduleSatisfied (state : SimulatorState)
+    (schedule : List GateDirective) : Prop :=
+  ∀ directive ∈ schedule, directive.Satisfied state
+
+/-- The final state satisfies every target in one fresh schedule. -/
+theorem programGateSchedule_satisfies_of_fresh
+    {state : SimulatorState} {schedule : List GateDirective}
+    (fresh : GateScheduleFresh state schedule)
+    (invariant : SimulatorInvariant state) :
+    GateScheduleSatisfied (programGateSchedule state schedule) schedule := by
+  induction fresh with
+  | nil state => simp [GateScheduleSatisfied]
+  | @cons state directive remaining current next inductionHypothesis =>
+      intro selected member
+      simp only [List.mem_cons] at member
+      rcases member with rfl | member
+      · apply GateDirective.satisfied_of_programRecords selected
+          (programGateSchedule state (selected :: remaining))
+          (programGateSchedule_preservesInvariant state (selected :: remaining) invariant)
+        intro record recordMember
+        have inNext : record ∈ (selected.apply state).fixedTranscript := by
+          rw [selected.apply_fixedTranscript_of_fresh state current]
+          exact List.mem_append_left state.fixedTranscript recordMember
+        have inFinal :=
+          (programGateSchedule_fixedTranscript_suffix_of_fresh next).mem inNext
+        simpa [programGateSchedule] using inFinal
+      · have satisfied := inductionHypothesis
+          (directive.apply_preservesInvariant state invariant) selected member
+        simpa [programGateSchedule] using satisfied
+
+/-- A collision-free schedule satisfies every selected gate target. -/
+theorem programGateSchedule_satisfies_of_notBad
+    (state : SimulatorState) (schedule : List GateDirective)
+    (invariant : SimulatorInvariant state)
+    (notBad : (programGateSchedule state schedule).bad = false) :
+    GateScheduleSatisfied (programGateSchedule state schedule) schedule :=
+  programGateSchedule_satisfies_of_fresh
+    (programGateSchedule_fresh_of_notBad state schedule notBad) invariant
 
 end Kriterion.ArgoMAC.Security
