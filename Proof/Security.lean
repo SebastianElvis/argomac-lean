@@ -255,6 +255,21 @@ theorem traceTransportCoupling_disagreement
   rw [traceTransportCoupling, PMF.toOuterMeasure_map_apply]
   rfl
 
+/-- A Boolean change event is bounded by any bad event that contains it. -/
+theorem traceTransport_changeMass_le_badMass
+    {FirstTrace SecondTrace : Type uSample}
+    (firstTraced : PMF (Bool × FirstTrace))
+    (transport : Bool × FirstTrace → Bool × SecondTrace)
+    (bad : Set (Bool × FirstTrace))
+    (changeImpliesBad : ∀ sample,
+      sample.1 ≠ (transport sample).1 → sample ∈ bad) :
+    firstTraced.toOuterMeasure
+        { sample | sample.1 ≠ (transport sample).1 } ≤
+      firstTraced.toOuterMeasure bad := by
+  apply firstTraced.toOuterMeasure.mono
+  intro sample changed
+  exact changeImpliesBad sample changed
+
 /-- A trace transport reduces the game bound to its Boolean change event. -/
 theorem advantage_le_of_traceTransport
     {FirstTrace SecondTrace : Type uSample}
@@ -276,6 +291,28 @@ theorem advantage_le_of_traceTransport
     ((traceTransportCoupling_snd firstTraced transport).trans secondMap)
     firstErase secondErase errorFinite
     (by simpa [traceTransportCoupling_disagreement] using changeBound)
+
+/-- A trace transport and a containing bad event bound the game advantage. -/
+theorem advantage_le_of_traceTransport_badEvent
+    {FirstTrace SecondTrace : Type uSample}
+    (firstTraced : PMF (Bool × FirstTrace))
+    (secondTraced : PMF (Bool × SecondTrace))
+    (first second : PMF Bool)
+    (transport : Bool × FirstTrace → Bool × SecondTrace)
+    (bad : Set (Bool × FirstTrace))
+    (error : ENNReal)
+    (secondMap : firstTraced.map transport = secondTraced)
+    (firstErase : firstTraced.map Prod.fst = first)
+    (secondErase : secondTraced.map Prod.fst = second)
+    (errorFinite : error ≠ ⊤)
+    (changeImpliesBad : ∀ sample,
+      sample.1 ≠ (transport sample).1 → sample ∈ bad)
+    (badBound : firstTraced.toOuterMeasure bad ≤ error) :
+    advantage first second ≤ error.toReal := by
+  apply advantage_le_of_traceTransport firstTraced secondTraced first second
+    transport error secondMap firstErase secondErase errorFinite
+  exact (traceTransport_changeMass_le_badMass firstTraced transport bad
+    changeImpliesBad).trans badBound
 
 /-- This coupling runs two deterministic Boolean games on one common sample. -/
 noncomputable def deterministicBoolCoupling {Sample : Type uSample}
@@ -639,6 +676,18 @@ def paperActiveInputsPerBucket : Nat := 92
 
 /-- The paper proof uses 6858 independent permutation buckets. -/
 def paperBucketCount : Nat := 6858
+
+/-- Mixed selected branches fit below the three-hash birthday budget. -/
+theorem selectedBranchBucketSquareBound (falseUses trueUses capacity : Nat)
+    (loadBound : falseUses + trueUses ≤ capacity) :
+    3 * falseUses ^ 2 + 2 * trueUses ^ 2 ≤ 3 * capacity ^ 2 := by
+  nlinarith [Nat.zero_le falseUses, Nat.zero_le trueUses]
+
+/-- Mixed selected branches fit below the three-hash linear query budget. -/
+theorem selectedBranchBucketLinearBound (falseUses trueUses capacity : Nat)
+    (loadBound : falseUses + trueUses ≤ capacity) :
+    3 * falseUses + 2 * trueUses ≤ 3 * capacity := by
+  omega
 
 noncomputable def paperCTPRFError (securityParameter oracleQueries : Nat) : ℝ :=
   ((3 * paperBucketCount * paperActiveInputsPerBucket ^ 2 +

@@ -439,4 +439,116 @@ theorem programGateForTarget_badOrFreshAll (state : SimulatorState)
   programGate_badOrFreshAll state location window bit label
     (liftHashBlocks lift.1) (targetPadBlocks table target)
 
+/-- This value contains one selected gate-programming request. -/
+structure GateDirective where
+  location : Pipeline.FixedKeyLocation
+  window : Nat
+  bit : Bool
+  label : Block
+  table : BitAdaptor.Table
+  target : BaseField
+  lift : HashLift target
+
+def GateDirective.apply (directive : GateDirective)
+    (state : SimulatorState) : SimulatorState :=
+  programGateForTarget state directive.location directive.window directive.bit
+    directive.label directive.table directive.target directive.lift
+
+/-- This operation applies the selected gate programs in order. -/
+def programGateSchedule (state : SimulatorState)
+    (schedule : List GateDirective) : SimulatorState :=
+  schedule.foldl (fun current directive => directive.apply current) state
+
+/-- This predicate records freshness at each reached programming step. -/
+inductive GateScheduleFresh : SimulatorState → List GateDirective → Prop
+  | nil (state : SimulatorState) : GateScheduleFresh state []
+  | cons {state : SimulatorState} {directive : GateDirective}
+      {remaining : List GateDirective}
+      (current : GateFresh state directive.location directive.window directive.bit
+        directive.label (liftHashBlocks directive.lift.1)
+        (targetPadBlocks directive.table directive.target))
+      (next : GateScheduleFresh (directive.apply state) remaining) :
+      GateScheduleFresh state (directive :: remaining)
+
+theorem GateDirective.apply_preservesInvariant (directive : GateDirective)
+    (state : SimulatorState) (invariant : SimulatorInvariant state) :
+    SimulatorInvariant (directive.apply state) :=
+  programGateForTarget_preservesInvariant state directive.location directive.window
+    directive.bit directive.label directive.table directive.target directive.lift invariant
+
+theorem programFixedSlot_bad_of_bad (state : SimulatorState)
+    (location : Pipeline.FixedKeyLocation) (window : Nat)
+    (slot : Pipeline.FixedKeySlot) (label block : Block)
+    (bad : state.bad = true) :
+    (programFixedSlot state location window slot label block).bad = true :=
+  tryProgramFixed_bad_of_bad state (fixedKeyIndex location window slot)
+    label (block ^^^ label) bad
+
+theorem programHashGate_bad_of_bad (state : SimulatorState)
+    (location : Pipeline.FixedKeyLocation) (window : Nat)
+    (label : Block) (blocks : Fin 3 → Block) (bad : state.bad = true) :
+    (programHashGate state location window label blocks).bad = true :=
+  programFixedSlot_bad_of_bad _ location window (.hash 2) label (blocks 2)
+    (programFixedSlot_bad_of_bad _ location window (.hash 1) label (blocks 1)
+      (programFixedSlot_bad_of_bad state location window (.hash 0) label (blocks 0) bad))
+
+theorem programPadGate_bad_of_bad (state : SimulatorState)
+    (location : Pipeline.FixedKeyLocation) (window : Nat)
+    (label : Block) (blocks : Fin 2 → Block) (bad : state.bad = true) :
+    (programPadGate state location window label blocks).bad = true :=
+  programFixedSlot_bad_of_bad _ location window (.pad 1) label (blocks 1)
+    (programFixedSlot_bad_of_bad state location window (.pad 0) label (blocks 0) bad)
+
+/-- A prior collision remains recorded after one selected gate program. -/
+theorem GateDirective.apply_bad_of_bad (directive : GateDirective)
+    (state : SimulatorState) (bad : state.bad = true) :
+    (directive.apply state).bad = true := by
+  simp only [GateDirective.apply, programGateForTarget, programGate]
+  split
+  · exact programPadGate_bad_of_bad state directive.location directive.window
+      directive.label (targetPadBlocks directive.table directive.target) bad
+  · exact programHashGate_bad_of_bad state directive.location directive.window
+      directive.label (liftHashBlocks directive.lift.1) bad
+
+/-- A prior collision remains recorded after the complete gate schedule. -/
+theorem programGateSchedule_bad_of_bad (state : SimulatorState)
+    (schedule : List GateDirective) (bad : state.bad = true) :
+    (programGateSchedule state schedule).bad = true := by
+  induction schedule generalizing state with
+  | nil => simpa [programGateSchedule] using bad
+  | cons directive remaining inductionHypothesis =>
+      rw [programGateSchedule, List.foldl_cons]
+      exact inductionHypothesis (directive.apply state)
+        (directive.apply_bad_of_bad state bad)
+
+/-- The complete schedule preserves the shared simulator invariant. -/
+theorem programGateSchedule_preservesInvariant (state : SimulatorState)
+    (schedule : List GateDirective) (invariant : SimulatorInvariant state) :
+    SimulatorInvariant (programGateSchedule state schedule) := by
+  induction schedule generalizing state with
+  | nil => simpa [programGateSchedule] using invariant
+  | cons directive remaining inductionHypothesis =>
+      rw [programGateSchedule, List.foldl_cons]
+      exact inductionHypothesis (directive.apply state)
+        (directive.apply_preservesInvariant state invariant)
+
+/-- Every reached gate program is fresh unless the schedule records a collision. -/
+theorem programGateSchedule_badOrFresh (state : SimulatorState)
+    (schedule : List GateDirective) :
+    (programGateSchedule state schedule).bad = true ∨
+      GateScheduleFresh state schedule := by
+  induction schedule generalizing state with
+  | nil => exact Or.inr (.nil state)
+  | cons directive remaining inductionHypothesis =>
+      have current := programGateForTarget_badOrFreshAll state directive.location
+        directive.window directive.bit directive.label directive.table directive.target
+        directive.lift
+      rcases current with bad | fresh
+      · left
+        rw [programGateSchedule, List.foldl_cons]
+        exact programGateSchedule_bad_of_bad (directive.apply state) remaining bad
+      · rcases inductionHypothesis (directive.apply state) with bad | remainingFresh
+        · exact Or.inl (by simpa [programGateSchedule] using bad)
+        · exact Or.inr (.cons fresh remainingFresh)
+
 end Kriterion.ArgoMAC.Security

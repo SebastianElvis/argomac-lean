@@ -247,18 +247,19 @@ Jobs borrow output keys.
 They do not copy those secret keys into a second vector.
 Fixed Boolean arrays replace heap-based coefficient index sets.
 Each window set reuses its SHA-256 bucket and role prefixes while it derives 15 fixed AES keys.
+The 384-bit hash-to-field reducer uses its fixed 48-byte layout and avoids generic slice loops.
 Tests compare one-worker and four-worker tables.
 A second test compares all 273 allocated child nonces with the serial schedule.
 
 On the same Apple M5, the ARMv8 AES benchmarks used 100 Criterion samples.
 The incomplete 92-row serial baseline estimate was 15.934 ms.
-The complete 91-row, 10-worker row mean is 3.754 ms.
-Its 95 percent interval is 3.732 to 3.778 ms.
-The complete row stage is 4.24 times faster than the serial baseline.
-The prefix reuse lowers the row mean by 2.3 percent against its isolated prior commit.
+The complete 91-row, 10-worker row mean is 3.630 ms.
+Its 95 percent interval is 3.599 to 3.664 ms.
+The complete row stage is 4.39 times faster than the serial baseline.
+The specialized field reduction lowers the row mean by 3.3 percent against its isolated prior commit.
 
-The protocol \texttt{encode} mean is 69.092 ms.
-Its 95 percent interval is 69.033 to 69.156 ms.
+The protocol \texttt{encode} mean is 69.094 ms.
+Its 95 percent interval is 68.941 to 69.291 ms.
 The comparable baseline is 81.309 ms.
 The complete implementation reduces this time by 15.0 percent.
 Its HMAC table has 9,668,659 bytes.
@@ -316,6 +317,10 @@ If each step forbids at most $k$ blocks, its collision schedule has mass at most
 An exact coupling lemma converts disagreement-event mass to the challenge's real-valued advantage.
 A graph coupling maps each real trace to one ideal trace and proves both marginals.
 A final generic theorem reduces the complete adaptive property to this trace transport and its Boolean change event.
+Lean also bounds this change event by any containing reached-collision event.
+The gate programmer now accepts an ordered schedule of selected gates.
+It preserves the shared invariant and keeps a prior collision flag.
+It proves that every reached programming step is fresh unless the final state records a collision.
 
 The complete row repairs the known perfect-correctness failure.
 The Rust permutation schedule still lacks a complete adaptive-privacy reduction.
@@ -327,6 +332,9 @@ Its zero-query numerator is
 The 100-bit margin is 2,814,100 numerator units.
 A direct five-slot union bound exceeds $2^{28}$.
 Lean proves the 100-bit arithmetic for each exclusive three-hash or two-pad branch.
+For a bucket with $f$ false selections and $t$ true selections, Lean proves
+$3f^2+2t^2\leq 3(f+t)^2$ and $3f+2t\leq 3(f+t)$.
+Thus, mixed selected bits stay below the three-hash bucket budget.
 The semantic reduction must still condition on the selected branch.
 The current Lean challenge library also defines no \texttt{Kriterion.Benchmark.garble}.
 The PR does not forge either missing item.

@@ -1227,6 +1227,14 @@ def tryProgramHash (state : SimulatorState) (input : BaseField)
   if freshHashInputCheck state.hashTranscript input
   then programHash state input output else markBad state
 
+/-- A prior collision remains recorded after checked fixed-key programming. -/
+theorem tryProgramFixed_bad_of_bad (state : SimulatorState)
+    (index : Pipeline.FixedKeyIndex) (input output : Block)
+    (bad : state.bad = true) :
+    (tryProgramFixed state index input output).bad = true := by
+  unfold tryProgramFixed
+  split <;> simp_all [programFixed, markBad]
+
 theorem programHash_apply (state : SimulatorState) (input : BaseField)
     (output : Block × Block) :
     (programHash state input output).hashOracle input = output := by

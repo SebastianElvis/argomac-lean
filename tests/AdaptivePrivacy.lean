@@ -38,6 +38,8 @@ theorem hashLiftRoundingArithmeticHas100Bits :
 #print axioms programmedHashArithmeticHas100Bits
 #print axioms programmedPadArithmeticHas100Bits
 #print axioms selectedBranchProgrammingArithmeticHas100Bits
+#print axioms ArgoMAC.Security.selectedBranchBucketSquareBound
+#print axioms ArgoMAC.Security.selectedBranchBucketLinearBound
 #print axioms hashLiftRoundingArithmeticHas100Bits
 #print axioms ArgoMAC.Security.blockCard
 #print axioms ArgoMAC.Security.uniformBlockMass
@@ -70,7 +72,9 @@ theorem hashLiftRoundingArithmeticHas100Bits :
 #print axioms ArgoMAC.Security.traceTransportCoupling_fst
 #print axioms ArgoMAC.Security.traceTransportCoupling_snd
 #print axioms ArgoMAC.Security.traceTransportCoupling_disagreement
+#print axioms ArgoMAC.Security.traceTransport_changeMass_le_badMass
 #print axioms ArgoMAC.Security.advantage_le_of_traceTransport
+#print axioms ArgoMAC.Security.advantage_le_of_traceTransport_badEvent
 #print axioms ArgoMAC.Security.deterministicBoolCoupling_fst
 #print axioms ArgoMAC.Security.deterministicBoolCoupling_snd
 #print axioms ArgoMAC.Security.deterministicBoolCoupling_disagreement
@@ -125,6 +129,7 @@ theorem hashLiftRoundingArithmeticHas100Bits :
 #print axioms ArgoMAC.Security.tryProgramFixed_badOrFresh
 #print axioms ArgoMAC.Security.tryProgramEnc_badOrFresh
 #print axioms ArgoMAC.Security.tryProgramHash_badOrFresh
+#print axioms ArgoMAC.Security.tryProgramFixed_bad_of_bad
 #print axioms ArgoMAC.Security.programHashGate_evaluate
 #print axioms ArgoMAC.Security.programPadGate_evaluate
 #print axioms ArgoMAC.Security.programGate_evaluate
@@ -135,6 +140,11 @@ theorem hashLiftRoundingArithmeticHas100Bits :
 #print axioms ArgoMAC.Security.programGateForTarget_evaluate
 #print axioms ArgoMAC.Security.programGateForTarget_preservesInvariant
 #print axioms ArgoMAC.Security.programGateForTarget_badOrFreshAll
+#print axioms ArgoMAC.Security.GateDirective.apply_preservesInvariant
+#print axioms ArgoMAC.Security.GateDirective.apply_bad_of_bad
+#print axioms ArgoMAC.Security.programGateSchedule_bad_of_bad
+#print axioms ArgoMAC.Security.programGateSchedule_preservesInvariant
+#print axioms ArgoMAC.Security.programGateSchedule_badOrFresh
 #print axioms ArgoMAC.Security.recordGateConstructionQueries_preservesInvariant
 #print axioms ArgoMAC.Security.recordGateConstructionQueries_length
 #print axioms ArgoMAC.Security.recordGateConstructionQueries_origin
