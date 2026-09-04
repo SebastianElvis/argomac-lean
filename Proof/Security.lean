@@ -13,7 +13,7 @@ open GarbledCircuit
 open Cryptography
 open Cryptography.Assumptions
 
-universe uKey uCounter uCTPRFIndex uEncPRFIndex uHashInput uCPAAux
+universe uKey uCounter uCTPRFIndex uEncPRFIndex uHashInput uCPAAux uSample
 
 /-- These are the standard assumptions in `thm:gc_opt_final`. -/
 abbrev BaBeAssumptions
@@ -100,6 +100,100 @@ theorem uniformBlockFinsetMass_sum_le (forbidden : List (Finset Block)) (count :
         _ = ((tail.length + 1) * count : ENNReal) *
               Inv.inv (↑(2 ^ blockBits : Nat) : ENNReal) := by
           ring
+
+/-- A Boolean coupling bounds advantage by its two disagreement outcomes. -/
+theorem advantage_map_prod_le_disagreement (joint : PMF (Bool × Bool)) :
+    advantage (joint.map Prod.fst) (joint.map Prod.snd) ≤
+      (joint (true, false)).toReal + (joint (false, true)).toReal := by
+  unfold advantage
+  simp only [PMF.map_apply]
+  simp only [ENNReal.tsum_prod']
+  simp only [tsum_bool]
+  norm_num
+  rw [ENNReal.toReal_add (joint.apply_ne_top _) (joint.apply_ne_top _),
+    ENNReal.toReal_add (joint.apply_ne_top _) (joint.apply_ne_top _)]
+  ring_nf
+  have trueFalseNonnegative : 0 ≤ (joint (true, false)).toReal := ENNReal.toReal_nonneg
+  have falseTrueNonnegative : 0 ≤ (joint (false, true)).toReal := ENNReal.toReal_nonneg
+  rw [abs_le]
+  constructor <;> linarith
+
+/-- This event contains the two Boolean outcomes where a coupling disagrees. -/
+def boolDisagreement : Set (Bool × Bool) :=
+  { output | output.1 ≠ output.2 }
+
+/-- The disagreement event has the sum of its two possible outcome masses. -/
+theorem boolDisagreement_mass (joint : PMF (Bool × Bool)) :
+    joint.toOuterMeasure boolDisagreement =
+      joint (true, false) + joint (false, true) := by
+  rw [PMF.toOuterMeasure_apply]
+  simp only [ENNReal.tsum_prod', tsum_bool]
+  norm_num [boolDisagreement, add_comm]
+
+/-- A Boolean coupling bounds advantage by the mass of its disagreement event. -/
+theorem advantage_map_prod_le_disagreementMass (joint : PMF (Bool × Bool)) :
+    advantage (joint.map Prod.fst) (joint.map Prod.snd) ≤
+      (joint.toOuterMeasure boolDisagreement).toReal := by
+  rw [boolDisagreement_mass,
+    ENNReal.toReal_add (joint.apply_ne_top _) (joint.apply_ne_top _)]
+  exact advantage_map_prod_le_disagreement joint
+
+/-- A coupling with bounded disagreement gives the same bound on game advantage. -/
+theorem advantage_le_of_coupling (first second : PMF Bool)
+    (joint : PMF (Bool × Bool)) (error : ENNReal)
+    (firstMarginal : joint.map Prod.fst = first)
+    (secondMarginal : joint.map Prod.snd = second)
+    (errorFinite : error ≠ ⊤)
+    (disagreementBound : joint.toOuterMeasure boolDisagreement ≤ error) :
+    advantage first second ≤ error.toReal := by
+  rw [← firstMarginal, ← secondMarginal]
+  exact (advantage_map_prod_le_disagreementMass joint).trans
+    (ENNReal.toReal_mono errorFinite disagreementBound)
+
+/-- This coupling runs two deterministic Boolean games on one common sample. -/
+noncomputable def deterministicBoolCoupling {Sample : Type uSample}
+    (source : PMF Sample) (first second : Sample → Bool) : PMF (Bool × Bool) :=
+  source.map fun sample => (first sample, second sample)
+
+theorem deterministicBoolCoupling_fst {Sample : Type uSample}
+    (source : PMF Sample) (first second : Sample → Bool) :
+    (deterministicBoolCoupling source first second).map Prod.fst = source.map first := by
+  simp [deterministicBoolCoupling, PMF.map_comp, Function.comp_def]
+
+theorem deterministicBoolCoupling_snd {Sample : Type uSample}
+    (source : PMF Sample) (first second : Sample → Bool) :
+    (deterministicBoolCoupling source first second).map Prod.snd = source.map second := by
+  simp [deterministicBoolCoupling, PMF.map_comp, Function.comp_def]
+
+theorem deterministicBoolCoupling_disagreement {Sample : Type uSample}
+    (source : PMF Sample) (first second : Sample → Bool) :
+    (deterministicBoolCoupling source first second).toOuterMeasure boolDisagreement =
+      source.toOuterMeasure { sample | first sample ≠ second sample } := by
+  rw [deterministicBoolCoupling, PMF.toOuterMeasure_map_apply]
+  rfl
+
+/-- Two deterministic games differ by at most their disagreement-event mass. -/
+theorem advantage_map_le_disagreementMass {Sample : Type uSample}
+    (source : PMF Sample) (first second : Sample → Bool) :
+    advantage (source.map first) (source.map second) ≤
+      (source.toOuterMeasure { sample | first sample ≠ second sample }).toReal := by
+  let joint := deterministicBoolCoupling source first second
+  calc
+    advantage (source.map first) (source.map second) =
+        advantage (joint.map Prod.fst) (joint.map Prod.snd) := by
+      rw [deterministicBoolCoupling_fst, deterministicBoolCoupling_snd]
+    _ ≤ (joint.toOuterMeasure boolDisagreement).toReal :=
+      advantage_map_prod_le_disagreementMass joint
+    _ = (source.toOuterMeasure { sample | first sample ≠ second sample }).toReal := by
+      rw [deterministicBoolCoupling_disagreement]
+
+/-- The finite collision mass converts to the challenge's real-valued error formula. -/
+theorem blockCollisionMass_toReal (count : Nat) :
+    ((count : ENNReal) * Inv.inv (↑(2 ^ blockBits : Nat) : ENNReal)).toReal =
+      (count : ℝ) / (2 : ℝ) ^ blockBits := by
+  rw [ENNReal.toReal_mul]
+  rw [ENNReal.toReal_inv]
+  norm_num [blockBits, div_eq_mul_inv]
 
 /-- The paper base-`(2 - omega)` case uses 92 active inputs per bucket. -/
 def paperActiveInputsPerBucket : Nat := 92

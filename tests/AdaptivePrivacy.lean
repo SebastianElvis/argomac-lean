@@ -46,6 +46,15 @@ theorem hashLiftRoundingArithmeticHas100Bits :
 #print axioms ArgoMAC.Security.uniformBlockFinsetMass_le
 #print axioms ArgoMAC.Security.uniformBlockTwoPointEvent_le
 #print axioms ArgoMAC.Security.uniformBlockFinsetMass_sum_le
+#print axioms ArgoMAC.Security.advantage_map_prod_le_disagreement
+#print axioms ArgoMAC.Security.boolDisagreement_mass
+#print axioms ArgoMAC.Security.advantage_map_prod_le_disagreementMass
+#print axioms ArgoMAC.Security.advantage_le_of_coupling
+#print axioms ArgoMAC.Security.deterministicBoolCoupling_fst
+#print axioms ArgoMAC.Security.deterministicBoolCoupling_snd
+#print axioms ArgoMAC.Security.deterministicBoolCoupling_disagreement
+#print axioms ArgoMAC.Security.advantage_map_le_disagreementMass
+#print axioms ArgoMAC.Security.blockCollisionMass_toReal
 #print axioms ArgoMAC.Security.pointLayerUsesLinkedInputKey
 #print axioms ArgoMAC.Security.recordFixed_preservesInvariant
 #print axioms ArgoMAC.Security.recordEnc_preservesInvariant
