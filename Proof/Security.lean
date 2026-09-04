@@ -165,7 +165,7 @@ theorem programmedPadArithmeticHas100Bits :
 def bitAdaptorEvaluationCount : Nat :=
   Pipeline.digitAdaptorCount * coordinateBitCount
 
-theorem bitAdaptorEvaluationCountValue : bitAdaptorEvaluationCount = 211582 := by decide
+theorem bitAdaptorEvaluationCountValue : bitAdaptorEvaluationCount = 209296 := by decide
 
 /-- This is the bound shape for the total 384-bit lift rounding term. -/
 noncomputable def hashLiftRoundingError : ℝ :=

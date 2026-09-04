@@ -29,10 +29,10 @@ def hashPermutationCount : Nat :=
 def padPermutationCount : Nat :=
   fixedKeyWindowCount * 2
 
-theorem fixedKeyWindowCountValue : fixedKeyWindowCount = 2499 := by decide
-theorem permutationCountValue : permutationCount = 12495 := by decide
-theorem hashPermutationCountValue : hashPermutationCount = 7497 := by decide
-theorem padPermutationCountValue : padPermutationCount = 4998 := by decide
+theorem fixedKeyWindowCountValue : fixedKeyWindowCount = 2472 := by decide
+theorem permutationCountValue : permutationCount = 12360 := by decide
+theorem hashPermutationCountValue : hashPermutationCount = 7416 := by decide
+theorem padPermutationCountValue : padPermutationCount = 4944 := by decide
 
 inductive CurveAdaptor
   | y4 | y6 | x3 | x5 | x7

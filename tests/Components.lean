@@ -134,10 +134,10 @@ theorem pipelineMatchesRows [FieldCertificate]
     input point decoded
 
 theorem fixedKeyCounts :
-    ArgoMAC.Pipeline.fixedKeyWindowCount = 2499 ∧
-      ArgoMAC.Pipeline.permutationCount = 12495 ∧
-      ArgoMAC.Pipeline.hashPermutationCount = 7497 ∧
-      ArgoMAC.Pipeline.padPermutationCount = 4998 :=
+    ArgoMAC.Pipeline.fixedKeyWindowCount = 2472 ∧
+      ArgoMAC.Pipeline.permutationCount = 12360 ∧
+      ArgoMAC.Pipeline.hashPermutationCount = 7416 ∧
+      ArgoMAC.Pipeline.padPermutationCount = 4944 :=
   ⟨ArgoMAC.Pipeline.fixedKeyWindowCountValue,
     ArgoMAC.Pipeline.permutationCountValue,
     ArgoMAC.Pipeline.hashPermutationCountValue,

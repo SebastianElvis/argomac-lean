@@ -1,0 +1,241 @@
+\documentclass[10pt]{article}
+\usepackage[a4paper,margin=22mm]{geometry}
+\usepackage{amsmath,amssymb,booktabs,array,microtype}
+\usepackage[hidelinks]{hyperref}
+\usepackage{xcolor}
+
+\hypersetup{pdftitle={Optimal 91-Digit BN254 Recoding},pdfauthor={Kriterion research submission}}
+
+\definecolor{ink}{HTML}{17212B}
+\definecolor{accent}{HTML}{145A7A}
+\definecolor{light}{HTML}{EAF3F7}
+\color{ink}
+\setlength{\parindent}{0pt}
+\setlength{\parskip}{3pt}
+\renewcommand{\arraystretch}{1.15}
+
+\title{\vspace{-16mm}\textbf{Optimal 91-Digit BN254 Recoding}\\
+\large A faster ArgoMAC scalar-multiplication circuit}
+\author{Kriterion research submission}
+\date{5 September 2026}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+The ArgoMAC baseline uses 92 digits in base $2-\omega$.
+This report gives a 91-digit construction for BN254 G1.
+The construction checks four GLV representatives.
+An exact Eisenstein-norm proof shows that one representative terminates in 91 rounds.
+Lean 4.24 checks the proof without new axioms or compiler-trusted evaluation.
+The digit count is optimal for the fixed seven-symbol alphabet.
+The matching Rust code also garbles independent output rows with Rayon.
+\end{abstract}
+
+\section{Contribution}
+
+Let $r$ be the BN254 scalar modulus.
+Let $\omega$ be the nontrivial cube root used by the G1 endomorphism.
+Set $\beta=2-\omega$.
+The digit alphabet is
+\[
+  D=\{0,\pm1,\pm\omega,\pm\omega^2\}.
+\]
+The norm of $\beta$ is seven.
+
+The baseline uses 92 fixed positions.
+The new construction uses 91 fixed positions for every scalar.
+It keeps the same alphabet and input-label shape.
+It removes one output MAC row, nine digit adaptors, and 11,430 fixed-permutation applications.
+
+\section{Four-corner GLV recoding}
+
+Use the Eisenstein norm
+\[
+  Q(a,b)=a^2-ab+b^2.
+\]
+The relevant BN254 constants are
+\begin{align*}
+ A &=147946756881789319000765030803803410728,\\
+ d &=9931322734385697763,\\
+ C &=A+d,\\
+ r &=A^2+Ad+d^2.
+\end{align*}
+The two GLV kernel vectors are
+\[
+  v_1=(-A,d),\qquad v_2=(-d,-C).
+\]
+
+Arkworks divides the two negative quotient numerators toward zero.
+Thus, its GLV state is the floor representative $z_0$ used by the proof.
+The selector checks
+\[
+  z_0,\quad z_0+v_1,\quad z_0+v_2,\quad z_0+v_1+v_2.
+\]
+Each shift is in the reconstruction kernel.
+Thus, every candidate represents the same scalar.
+
+For quotient remainders $u,v\in[0,r)$, scaling maps these four states to the four corners of one Eisenstein cell.
+The two triangle lemmas show that one corner satisfies
+\[
+  3Q(a,b)\le r.
+\]
+This is the exact covering-radius step.
+
+\section{Exact 91-round bound}
+
+One recurrence round selects a unit digit and divides by $\beta$.
+For a state with $Q(a,b)\le m$, the selected digit gives
+\[
+  Q(a-u_d,b-v_d)\le m+1+\lfloor\sqrt{4m}\rfloor.
+\]
+Exact division gives
+\[
+  Q(a-u_d,b-v_d)=7Q(a',b').
+\]
+
+Define the inverse safe bound
+\begin{align*}
+ B(0)&=2,\\
+ B(n+1)&=7B(n)+1-\left\lfloor\sqrt{4(7B(n)+1)}\right\rfloor.
+\end{align*}
+Lean proves the generic induction rule
+\[
+  Q(a,b)\le B(n)\Longrightarrow \mathsf{after}(n+1,(a,b))=(0,0).
+\]
+It also checks
+\begin{align*}
+ B(90)&=8072890822786049911192470628436961768360750887255955910449276353626847573707,\\
+ r&\le3B(90).
+\end{align*}
+The numeric proof uses ten-round kernel-checked checkpoints.
+It does not use \texttt{native\_decide}.
+
+The main Lean results are:
+\begin{itemize}
+  \item \texttt{shiftedInitialCorrect};
+  \item \texttt{existsCandidateNormBound};
+  \item \texttt{fourCandidatesSignedI128};
+  \item \texttt{existsCorrectShiftedInitialTerminates91};
+  \item \texttt{shortInitialTerminates91};
+  \item \texttt{shortInitialCorrect}.
+\end{itemize}
+The axiom audit reports only \texttt{propext}, \texttt{Classical.choice}, and \texttt{Quot.sound}.
+
+\section{Optimality}
+
+Lean checks
+\[
+  7^{90}<r<7^{91}.
+\]
+A fixed 90-position string over seven symbols has at most $7^{90}$ values.
+It cannot represent all $r$ scalars.
+Thus, 91 is optimal for this fixed alphabet.
+
+\section{Circuit cost}
+
+\begin{center}
+\begin{tabular}{lrrr}
+\toprule
+Item & 92 digits & 91 digits & Change \\
+\midrule
+Output MAC rows & 92 & 91 & $-1$ \\
+Digit adaptors & 833 & 824 & $-9$ \\
+Bit adaptors & 211,582 & 209,296 & $-2,286$ \\
+Fixed-permutation applications & 1,057,910 & 1,046,480 & $-11,430$ \\
+Public permutation instances & 12,495 & 12,360 & $-135$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+The Lean direct-table benchmark used 21 measured runs on each commit.
+The Apple M5 paired medians were 146 ms for the 92-digit shared-pass commit and 144 ms for the 91-digit commit.
+This is a 1.4 percent reduction.
+The larger prior shared-pass change reduced the original 989 ms median to 160 ms.
+Do not multiply these separate ratios.
+
+\section{Rust row parallelism}
+
+The Rust implementation allocates one job for each output row.
+It allocates the three child nonce domains before Rayon starts.
+It samples one fresh 32-byte ChaCha12 root from the caller RNG.
+Row $j$ uses stream
+\[
+  \mathtt{0x666d3265635f6d61}+j
+\]
+from word position zero.
+Indexed collection keeps the row order.
+Debug builds use the same RNG and nonce schedule in serial order.
+Release builds use Rayon.
+
+The root seed is erased after row construction.
+Jobs borrow output keys.
+They do not copy those secret keys into a second vector.
+Tests compare one-worker and four-worker tables.
+A second test compares all 273 allocated child nonces with the serial schedule.
+
+On the same Apple M5, the ARMv8 AES row benchmark used 100 Criterion samples.
+The 92-row serial baseline estimate was 15.934 ms.
+The 91-row serial implementation estimate was 15.669 ms.
+The 91-row, 10-worker estimate was 2.746 ms.
+The parallel result is 5.80 times faster than the serial baseline.
+The protocol-level \texttt{encode} benchmark used 10 samples.
+It fell from 81.309 ms to 68.232 ms, a 16.1 percent reduction.
+The ARMv8 backend gain is separate from the algorithmic and scheduling gains.
+
+\section{Security scope}
+
+The following invariants stay fixed:
+\begin{itemize}
+  \item Every candidate reconstructs the same scalar modulo $r$.
+  \item Every public circuit has exactly 91 output positions.
+  \item The digit alphabet does not change.
+  \item The input keeps 508 Lamport label positions.
+  \item The fixed-key window loads stay 91, 91, and 72.
+  \item Each row uses a separate nonce subtree and RNG stream.
+  \item Worker order cannot change the table or caller RNG state.
+\end{itemize}
+
+The Rust selector uses four fixed 91-round tests and \texttt{subtle::Choice}.
+This gives a fixed iteration count.
+Lean proves that every tested coordinate fits a signed 128-bit integer.
+The report does not claim compiler-level constant time.
+
+The digit theorem does not repair two baseline obligations.
+The current affine formula has an exceptional input that breaks perfect correctness.
+The Rust permutation schedule also lacks a complete adaptive-privacy reduction.
+The pinned challenge interface is not a closed Lean type and has no benchmark function.
+Therefore, this change is a proved performance contribution, but it is not a valid final challenge certificate at the pinned challenge revision.
+
+\section{Reproduction}
+
+The Lean proof uses Lean 4.24 and the pinned Mathlib checkout.
+Run:
+\begin{verbatim}
+lake build Proof Correctness
+lake env lean entry/tests/Correctness.lean
+lake exe bench
+\end{verbatim}
+
+The Rust validation uses Rust 1.94.0.
+Run:
+\begin{verbatim}
+cargo fmt --all -- --check
+cargo clippy --all-targets --all-features -- -D warnings
+cargo test --all-features
+cargo test --all-features --release
+RAYON_NUM_THREADS=10 cargo bench --all-features \
+  --bench field_mac_to_ec_mac -- 'field_mac_to_ec_mac/g1/garble'
+\end{verbatim}
+
+\section*{References}
+
+J.~Bosma and H.~W.~Lenstra, ``Complete systems of two addition laws for elliptic curves,'' \emph{Journal of Number Theory}, 1995.
+
+J.~Renes, C.~Costello, and L.~Batina, ``Complete addition formulas for prime order elliptic curves,'' EUROCRYPT 2016.
+
+RustCrypto, \emph{AES 0.8.4 documentation}, ARMv8 run-time detection section.
+
+Arkworks, \emph{ark-ec 0.5.0}, GLV scalar decomposition implementation.
+
+\end{document}

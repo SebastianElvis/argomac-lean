@@ -10,7 +10,7 @@ namespace Kriterion.ArgoMAC.FieldMacToECMac
 
 open BN254
 
-def outputMacCount : Nat := 92
+def outputMacCount : Nat := 91
 
 /-- The evaluator computes one Jacobian row before batch inversion. -/
 structure JacobianValue where
@@ -65,17 +65,17 @@ def AffineOffset.point [FieldCertificate] (offset : AffineOffset) : Point :=
     | none => exact (defined decoded).elim
     | some point => rfl)
 
-def freeOffsetPoints [FieldCertificate] (free : Vector AffineOffset 91) : List Point :=
+def freeOffsetPoints [FieldCertificate] (free : Vector AffineOffset 90) : List Point :=
   free.toList.map fun offset => AffineOffset.point offset
 
 def clampedFirst [FieldCertificate] [GroupCertificate]
-    (free : Vector AffineOffset 91) : Point :=
+    (free : Vector AffineOffset 90) : Point :=
   -(radix • pointHorner radix (freeOffsetPoints free))
 
 /-- This contains the affine offsets from one successful garbling run. -/
 structure SuccessfulOffsets where
   first : AffineOffset
-  free : Vector AffineOffset 91
+  free : Vector AffineOffset 90
 
 def SuccessfulOffsets.IsClamped [FieldCertificate] [GroupCertificate]
     (offsets : SuccessfulOffsets) : Prop :=
@@ -150,7 +150,7 @@ def evaluateJacobian (table : Table) (oracles : Oracles)
     z := Biquadratic.evaluate (oracles.get index).z (table.z.get index) input inputMac
   }
 
-/-- The result contains the input and 92 unchecked affine MAC values. -/
+/-- The result contains the input and 91 unchecked affine MAC values. -/
 structure Result where
   point : AffineInput
   pointMacs : Vector AffineInput outputMacCount

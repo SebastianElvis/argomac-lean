@@ -19,7 +19,7 @@ theorem pointHornerClampOffsets [FieldCertificate] [GroupCertificate]
 
 structure OffsetRandomness [FieldCertificate] where
   freeOffsets : List Point
-  freeOffsetCount : freeOffsets.length = 91
+  freeOffsetCount : freeOffsets.length = 90
 
 def Construction.offsets [FieldCertificate] [GroupCertificate]
     (_construction : Construction) (randomness : OffsetRandomness) : List Point :=
@@ -27,7 +27,7 @@ def Construction.offsets [FieldCertificate] [GroupCertificate]
 
 theorem Construction.offsetsLength [FieldCertificate] [GroupCertificate]
     (construction : Construction) (randomness : OffsetRandomness) :
-    (construction.offsets randomness).length = 92 := by
+    (construction.offsets randomness).length = 91 := by
   simp [Construction.offsets, clampOffsets, randomness.freeOffsetCount]
 
 theorem Construction.offsetsCancel [FieldCertificate] [GroupCertificate]
