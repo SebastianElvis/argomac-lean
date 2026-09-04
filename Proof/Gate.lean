@@ -846,6 +846,150 @@ theorem biquadraticRowGateSchedule_length
     biquadraticYGateSchedule_length, biquadraticZGateSchedule_length]
   omega
 
+/-- This request groups all selected targets for one complete RCB row. -/
+structure BiquadraticRowRequest where
+  x : BiquadraticXRequest
+  y : BiquadraticYRequest
+  z : BiquadraticZRequest
+
+def BiquadraticRowRequest.schedule (request : BiquadraticRowRequest)
+    (output : Fin FieldMacToECMac.outputMacCount)
+    (input : AffineInput) (inputMac : InputMac) : List GateDirective :=
+  biquadraticRowGateSchedule output input inputMac request.x request.y request.z
+
+def BiquadraticRowRequest.table (request : BiquadraticRowRequest) :
+    FieldMacToECMac.RowTable := {
+  x := request.x.table
+  y := request.y.table
+  z := request.z.table
+}
+
+def BiquadraticRowRequest.result (request : BiquadraticRowRequest)
+    (input : AffineInput) : FieldMacToECMac.HomogeneousValue := {
+  x := request.x.result input
+  y := request.y.result input
+  z := request.z.result input
+}
+
+theorem BiquadraticRowRequest.schedule_length (request : BiquadraticRowRequest)
+    (output : Fin FieldMacToECMac.outputMacCount)
+    (input : AffineInput) (inputMac : InputMac) :
+    (request.schedule output input inputMac).length = 13 * coordinateBitCount :=
+  biquadraticRowGateSchedule_length output input inputMac request.x request.y request.z
+
+/-- This request contains the public data and selected targets for curve membership. -/
+structure CurveGateRequest where
+  c0 : BaseField
+  c1 : BaseField
+  c2 : BaseField
+  x3Table : Vector BitAdaptor.Table coordinateBitCount
+  x5Table : Vector BitAdaptor.Table coordinateBitCount
+  x7Table : Vector BitAdaptor.Table coordinateBitCount
+  y4Table : Vector BitAdaptor.Table coordinateBitCount
+  y6Table : Vector BitAdaptor.Table coordinateBitCount
+  x3Targets : Fin coordinateBitCount → BaseField
+  x5Targets : Fin coordinateBitCount → BaseField
+  x7Targets : Fin coordinateBitCount → BaseField
+  y4Targets : Fin coordinateBitCount → BaseField
+  y6Targets : Fin coordinateBitCount → BaseField
+  x3Lifts : ∀ index, HashLift (x3Targets index)
+  x5Lifts : ∀ index, HashLift (x5Targets index)
+  x7Lifts : ∀ index, HashLift (x7Targets index)
+  y4Lifts : ∀ index, HashLift (y4Targets index)
+  y6Lifts : ∀ index, HashLift (y6Targets index)
+
+def CurveGateRequest.table (request : CurveGateRequest) : CurveMembership.Table := {
+  c0 := request.c0
+  c1 := request.c1
+  c2 := request.c2
+  x3 := request.x3Table
+  x5 := request.x5Table
+  x7 := request.x7Table
+  y4 := request.y4Table
+  y6 := request.y6Table
+}
+
+def CurveGateRequest.schedule (request : CurveGateRequest)
+    (input : AffineInput) (inputMac : InputMac) : List GateDirective :=
+  digitGateSchedule (.curve .x3) request.x3Table (coordinateValues input.x)
+      inputMac.x request.x3Targets request.x3Lifts ++
+    digitGateSchedule (.curve .x5) request.x5Table (coordinateValues input.x)
+      inputMac.x request.x5Targets request.x5Lifts ++
+    digitGateSchedule (.curve .x7) request.x7Table (coordinateValues input.x)
+      inputMac.x request.x7Targets request.x7Lifts ++
+    digitGateSchedule (.curve .y4) request.y4Table (coordinateValues input.y)
+      inputMac.y request.y4Targets request.y4Lifts ++
+    digitGateSchedule (.curve .y6) request.y6Table (coordinateValues input.y)
+      inputMac.y request.y6Targets request.y6Lifts
+
+def CurveGateRequest.result (request : CurveGateRequest)
+    (input : AffineInput) : BaseField :=
+  request.c0 + request.c1 * input.x ^ 3 + request.c2 * input.y ^ 2 +
+    DigitAdaptor.fromBits request.x3Targets * input.x ^ 2 +
+    DigitAdaptor.fromBits request.y4Targets * input.y +
+    DigitAdaptor.fromBits request.x5Targets * input.x +
+    DigitAdaptor.fromBits request.y6Targets + DigitAdaptor.fromBits request.x7Targets
+
+theorem CurveGateRequest.schedule_length (request : CurveGateRequest)
+    (input : AffineInput) (inputMac : InputMac) :
+    (request.schedule input inputMac).length = 5 * coordinateBitCount := by
+  simp only [CurveGateRequest.schedule, List.length_append, digitGateSchedule_length]
+  omega
+
+/-- These requests contain the selected targets for all 91 complete RCB rows. -/
+abbrev PointGateRequests := Vector BiquadraticRowRequest FieldMacToECMac.outputMacCount
+
+def pointGateSchedule (requests : PointGateRequests)
+    (input : AffineInput) (inputMac : InputMac) : List GateDirective :=
+  (List.ofFn fun output => (requests.get output).schedule output input inputMac).flatten
+
+def pointGateTable (requests : PointGateRequests) : FieldMacToECMac.Table := {
+  x := Vector.ofFn fun output => (requests.get output).table.x
+  y := Vector.ofFn fun output => (requests.get output).table.y
+  z := Vector.ofFn fun output => (requests.get output).table.z
+}
+
+def pointGateResults (requests : PointGateRequests)
+    (input : AffineInput) : Vector FieldMacToECMac.HomogeneousValue
+      FieldMacToECMac.outputMacCount :=
+  Vector.ofFn fun output => (requests.get output).result input
+
+theorem pointGateSchedule_length (requests : PointGateRequests)
+    (input : AffineInput) (inputMac : InputMac) :
+    (pointGateSchedule requests input inputMac).length =
+      FieldMacToECMac.outputMacCount * 13 * coordinateBitCount := by
+  rw [pointGateSchedule, List.length_flatten, List.map_ofFn]
+  change (List.ofFn fun output =>
+    ((requests.get output).schedule output input inputMac).length).sum = _
+  simp_rw [BiquadraticRowRequest.schedule_length]
+  rw [List.ofFn_const, List.sum_replicate_nat]
+  exact (Nat.mul_assoc _ _ _).symm
+
+/-- This schedule programs the fixed-key layer of the complete circuit. -/
+def pipelineGateSchedule (curve : CurveGateRequest) (points : PointGateRequests)
+    (input : AffineInput) (curveInputMac pointInputMac : InputMac) :
+    List GateDirective :=
+  curve.schedule input curveInputMac ++ pointGateSchedule points input pointInputMac
+
+theorem pipelineGateSchedule_length (curve : CurveGateRequest)
+    (points : PointGateRequests) (input : AffineInput)
+    (curveInputMac pointInputMac : InputMac) :
+    (pipelineGateSchedule curve points input curveInputMac pointInputMac).length =
+      Pipeline.digitAdaptorCount * coordinateBitCount := by
+  rw [pipelineGateSchedule, List.length_append, curve.schedule_length,
+    pointGateSchedule_length]
+  simp only [Pipeline.digitAdaptorCount, Pipeline.curveDigitAdaptorCount,
+    Pipeline.pointDigitAdaptorsPerOutput]
+  exact (Nat.add_mul _ _ _).symm
+
+theorem pipelineGateSchedule_length_value (curve : CurveGateRequest)
+    (points : PointGateRequests) (input : AffineInput)
+    (curveInputMac pointInputMac : InputMac) :
+    (pipelineGateSchedule curve points input curveInputMac pointInputMac).length =
+      301752 := by
+  rw [pipelineGateSchedule_length]
+  decide
+
 theorem programFixedSlot_fixedTranscript_of_fresh (state : SimulatorState)
     (location : Pipeline.FixedKeyLocation) (window : Nat)
     (slot : Pipeline.FixedKeySlot) (label block : Block)
@@ -1216,6 +1360,61 @@ theorem digitGateSchedule_evaluateValue
   rw [digitGateSchedule_evaluate state location tables values labels targets lifts satisfied]
   simp
 
+/-- A satisfied five-adaptor schedule returns the requested membership value. -/
+theorem CurveGateRequest.evaluate (request : CurveGateRequest)
+    (state : SimulatorState) (input : AffineInput) (inputMac : InputMac)
+    (satisfied : GateScheduleSatisfied state (request.schedule input inputMac)) :
+    CurveMembership.evaluate (Pipeline.curveOracles state.fixedOracle)
+      request.table input inputMac = request.result input := by
+  have x3Satisfied : GateScheduleSatisfied state
+      (digitGateSchedule (.curve .x3) request.x3Table (coordinateValues input.x)
+        inputMac.x request.x3Targets request.x3Lifts) := by
+    intro directive member
+    apply satisfied directive
+    simp [CurveGateRequest.schedule, member]
+  have x5Satisfied : GateScheduleSatisfied state
+      (digitGateSchedule (.curve .x5) request.x5Table (coordinateValues input.x)
+        inputMac.x request.x5Targets request.x5Lifts) := by
+    intro directive member
+    apply satisfied directive
+    simp [CurveGateRequest.schedule, member]
+  have x7Satisfied : GateScheduleSatisfied state
+      (digitGateSchedule (.curve .x7) request.x7Table (coordinateValues input.x)
+        inputMac.x request.x7Targets request.x7Lifts) := by
+    intro directive member
+    apply satisfied directive
+    simp [CurveGateRequest.schedule, member]
+  have y4Satisfied : GateScheduleSatisfied state
+      (digitGateSchedule (.curve .y4) request.y4Table (coordinateValues input.y)
+        inputMac.y request.y4Targets request.y4Lifts) := by
+    intro directive member
+    apply satisfied directive
+    simp [CurveGateRequest.schedule, member]
+  have y6Satisfied : GateScheduleSatisfied state
+      (digitGateSchedule (.curve .y6) request.y6Table (coordinateValues input.y)
+        inputMac.y request.y6Targets request.y6Lifts) := by
+    intro directive member
+    apply satisfied directive
+    simp [CurveGateRequest.schedule, member]
+  have x3Value := digitGateSchedule_evaluateValue state (.curve .x3)
+    request.x3Table (coordinateValues input.x) inputMac.x request.x3Targets
+    request.x3Lifts x3Satisfied
+  have x5Value := digitGateSchedule_evaluateValue state (.curve .x5)
+    request.x5Table (coordinateValues input.x) inputMac.x request.x5Targets
+    request.x5Lifts x5Satisfied
+  have x7Value := digitGateSchedule_evaluateValue state (.curve .x7)
+    request.x7Table (coordinateValues input.x) inputMac.x request.x7Targets
+    request.x7Lifts x7Satisfied
+  have y4Value := digitGateSchedule_evaluateValue state (.curve .y4)
+    request.y4Table (coordinateValues input.y) inputMac.y request.y4Targets
+    request.y4Lifts y4Satisfied
+  have y6Value := digitGateSchedule_evaluateValue state (.curve .y6)
+    request.y6Table (coordinateValues input.y) inputMac.y request.y6Targets
+    request.y6Lifts y6Satisfied
+  simp only [CurveMembership.evaluate, Pipeline.curveOracles,
+    CurveMembership.evaluateDigit, CurveGateRequest.table, CurveGateRequest.result]
+  rw [x3Value, x5Value, x7Value, y4Value, y6Value]
+
 /-- A satisfied four-adaptor schedule returns the requested RCB X-coordinate. -/
 theorem biquadraticXGateSchedule_evaluate
     (state : SimulatorState) (output : Fin FieldMacToECMac.outputMacCount)
@@ -1439,6 +1638,92 @@ theorem biquadraticZGateSchedule_evaluate
     Option.getD_some, Option.getD_none]
   rw [y6Value, y8Value, y10Value, x7Value, x9Value]
   ring
+
+/-- A satisfied row request returns one complete homogeneous value. -/
+theorem BiquadraticRowRequest.evaluate (request : BiquadraticRowRequest)
+    (state : SimulatorState) (output : Fin FieldMacToECMac.outputMacCount)
+    (input : AffineInput) (inputMac : InputMac)
+    (satisfied : GateScheduleSatisfied state (request.schedule output input inputMac)) :
+    ({
+      x := Biquadratic.evaluate
+        (Pipeline.biquadraticOracles state.fixedOracle output .x)
+        request.table.x input inputMac
+      y := Biquadratic.evaluate
+        (Pipeline.biquadraticOracles state.fixedOracle output .y)
+        request.table.y input inputMac
+      z := Biquadratic.evaluate
+        (Pipeline.biquadraticOracles state.fixedOracle output .z)
+        request.table.z input inputMac
+    } : FieldMacToECMac.HomogeneousValue) = request.result input := by
+  have xSatisfied : GateScheduleSatisfied state
+      (request.x.schedule output input inputMac) := by
+    intro directive member
+    apply satisfied directive
+    simp [BiquadraticRowRequest.schedule, biquadraticRowGateSchedule, member]
+  have ySatisfied : GateScheduleSatisfied state
+      (request.y.schedule output input inputMac) := by
+    intro directive member
+    apply satisfied directive
+    simp [BiquadraticRowRequest.schedule, biquadraticRowGateSchedule, member]
+  have zSatisfied : GateScheduleSatisfied state
+      (request.z.schedule output input inputMac) := by
+    intro directive member
+    apply satisfied directive
+    simp [BiquadraticRowRequest.schedule, biquadraticRowGateSchedule, member]
+  have xValue : Biquadratic.evaluate
+      (Pipeline.biquadraticOracles state.fixedOracle output .x)
+      request.x.table input inputMac = request.x.result input := by
+    simpa only [BiquadraticXRequest.table, BiquadraticXRequest.result,
+      BiquadraticXRequest.schedule] using
+      biquadraticXGateSchedule_evaluate state output request.x.c0 request.x.c1
+        request.x.c2 request.x.c3 request.x.c5 request.x.y6Table request.x.y8Table
+        request.x.y10Table request.x.x9Table input inputMac request.x.y6Targets
+        request.x.y8Targets request.x.y10Targets request.x.x9Targets request.x.y6Lifts
+        request.x.y8Lifts request.x.y10Lifts request.x.x9Lifts xSatisfied
+  have yValue : Biquadratic.evaluate
+      (Pipeline.biquadraticOracles state.fixedOracle output .y)
+      request.y.table input inputMac = request.y.result input := by
+    simpa only [BiquadraticYRequest.table, BiquadraticYRequest.result,
+      BiquadraticYRequest.schedule] using
+      biquadraticYGateSchedule_evaluate state output request.y.c0 request.y.c1
+        request.y.c4 request.y.c5 request.y.y8Table request.y.y10Table request.y.x7Table
+        request.y.x9Table input inputMac request.y.y8Targets request.y.y10Targets
+        request.y.x7Targets request.y.x9Targets request.y.y8Lifts request.y.y10Lifts
+        request.y.x7Lifts request.y.x9Lifts ySatisfied
+  have zValue : Biquadratic.evaluate
+      (Pipeline.biquadraticOracles state.fixedOracle output .z)
+      request.z.table input inputMac = request.z.result input := by
+    simpa only [BiquadraticZRequest.table, BiquadraticZRequest.result,
+      BiquadraticZRequest.schedule] using
+      biquadraticZGateSchedule_evaluate state output request.z.c0 request.z.c2
+        request.z.c3 request.z.c4 request.z.c5 request.z.y6Table request.z.y8Table
+        request.z.y10Table request.z.x7Table request.z.x9Table input inputMac
+        request.z.y6Targets request.z.y8Targets request.z.y10Targets request.z.x7Targets
+        request.z.x9Targets request.z.y6Lifts request.z.y8Lifts request.z.y10Lifts
+        request.z.x7Lifts request.z.x9Lifts zSatisfied
+  simp only [BiquadraticRowRequest.table, BiquadraticRowRequest.result]
+  rw [xValue, yValue, zValue]
+
+/-- A satisfied 91-row schedule returns every requested homogeneous value. -/
+theorem pointGateSchedule_evaluate (requests : PointGateRequests)
+    (state : SimulatorState) (input : AffineInput) (inputMac : InputMac)
+    (satisfied : GateScheduleSatisfied state (pointGateSchedule requests input inputMac)) :
+    FieldMacToECMac.evaluateHomogeneous (pointGateTable requests)
+        (Pipeline.pointOracles state.fixedOracle) input inputMac =
+      pointGateResults requests input := by
+  apply Vector.ext
+  intro index inRange
+  let output : Fin FieldMacToECMac.outputMacCount := ⟨index, inRange⟩
+  have rowSatisfied : GateScheduleSatisfied state
+      ((requests.get output).schedule output input inputMac) := by
+    intro directive member
+    apply satisfied directive
+    rw [pointGateSchedule, List.mem_flatten]
+    exact ⟨(requests.get output).schedule output input inputMac,
+      List.mem_ofFn.mpr ⟨output, rfl⟩, member⟩
+  have rowValue := (requests.get output).evaluate state output input inputMac rowSatisfied
+  simpa [FieldMacToECMac.evaluateHomogeneous, pointGateTable,
+    Pipeline.pointOracles, pointGateResults, output] using rowValue
 
 /-- The final state satisfies every target in one fresh schedule. -/
 theorem programGateSchedule_satisfies_of_fresh
