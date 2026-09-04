@@ -171,6 +171,7 @@ Release builds use Rayon.
 The root seed is erased after row construction.
 Jobs borrow output keys.
 They do not copy those secret keys into a second vector.
+Fixed Boolean arrays replace heap-based coefficient index sets.
 Tests compare one-worker and four-worker tables.
 A second test compares all 273 allocated child nonces with the serial schedule.
 
