@@ -351,10 +351,16 @@ The linked schedule derives its point-layer input MAC with the exact EncPRF tran
 It uses the programmed membership result as the whitening-key input.
 Fixed-key programming preserves the EncPRF and hash oracles.
 A satisfied linked schedule equals the full pipeline evaluation and returns all requested values.
+The programming bridge now retargets each selected curve and RCB coordinate.
+It puts one field residual in the low bit position and puts zero in every other position.
+Lean proves that this weighted fold equals the residual.
+It also proves that retargeting preserves every public table.
+Collision-free programming returns each requested homogeneous value for all 91 rows.
 
 The complete row repairs the known perfect-correctness failure.
 The generic bounded bridge is complete.
-The construction still lacks the ArgoMAC bridge that programs the selected circuit and bounds its collision probability.
+The construction still lacks the distributional hop from real public tables to simulated public tables.
+It also lacks the final adaptive collision bound for that hop.
 The worst selected branch uses the three hash slots.
 Its zero-query numerator is
 \[
@@ -370,6 +376,9 @@ The semantic reduction must still condition on the selected branch.
 A companion Kriterion change closes the challenge interface defects.
 It makes \texttt{Kriterion.Solution} a closed dependent bundle.
 It also defines \texttt{Kriterion.Benchmark.garble} at a fixed scalar, security parameter, and seed.
+The security game now samples the complete finite random tape uniformly.
+The fixed 256-bit seed selects only the reproducible benchmark tape.
+This change permits exact uniform permutation and random-oracle proofs.
 The challenge must still reject this entry until the construction-specific adaptive proof is complete.
 
 \section{Reproduction}
