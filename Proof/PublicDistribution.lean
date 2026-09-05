@@ -618,6 +618,41 @@ theorem map_uniform_garblingRandomness_fixedDaviesMeyerHashSplit
   exact map_uniform_fixedOracleProduct_fixedDaviesMeyerHashSplit
     (garblingRandomnessRest witness) location window label
 
+/-- A gate hash stays uniform when all gate metadata depends on the rest tape. -/
+theorem map_uniform_garblingRandomness_dependentDaviesMeyerHashSplit
+    (witness : Garbling.Randomness)
+    (location : GarblingRandomnessRest → Pipeline.FixedKeyLocation)
+    (window : GarblingRandomnessRest → Nat)
+    (label : GarblingRandomnessRest → Block) :
+    letI : Nonempty Garbling.Randomness := ⟨witness⟩
+    (PMF.uniformOfFintype Garbling.Randomness).map
+        (fun randomness =>
+          let rest := garblingRandomnessRest randomness
+          hashLiftSplitEquiv
+            (fixedDaviesMeyerHashLift (location rest) (window rest)
+              (label rest) randomness.fixedKeyOracle)) =
+      PMF.uniformOfFintype (GoodHashLift ⊕ BadHashLift) := by
+  letI : Nonempty Garbling.Randomness := ⟨witness⟩
+  letI : Nonempty GarblingRandomnessRest := ⟨garblingRandomnessRest witness⟩
+  rw [show (fun randomness : Garbling.Randomness =>
+      let rest := garblingRandomnessRest randomness
+      hashLiftSplitEquiv
+        (fixedDaviesMeyerHashLift (location rest) (window rest)
+          (label rest) randomness.fixedKeyOracle)) =
+      (fun sample => hashLiftSplitEquiv
+        (fixedDaviesMeyerHashLift (location sample.2) (window sample.2)
+          (label sample.2) sample.1)) ∘ garblingRandomnessFixedOracleEquiv by rfl]
+  rw [← PMF.map_comp]
+  rw [map_uniformOfFintype_equivBetween]
+  exact map_uniform_prod_of_uniform_fiber
+    (First := PermutationOracle Pipeline.FixedKeyIndex Block)
+    (Second := GarblingRandomnessRest)
+    (Output := GoodHashLift ⊕ BadHashLift)
+    (fun oracle rest => hashLiftSplitEquiv
+      (fixedDaviesMeyerHashLift (location rest) (window rest) (label rest) oracle))
+    (fun rest => map_uniform_fixedDaviesMeyerHashSplit
+      (location rest) (window rest) (label rest))
+
 /-- One gate in the complete security tape has the exact hash-lift law. -/
 theorem map_randomTape_fixedDaviesMeyerHashSplit
     (witness : Garbling.Randomness) (parameter : Nat)
@@ -643,6 +678,24 @@ theorem map_randomTape_dependentDaviesMeyerHashSplit
   letI : Nonempty Garbling.Randomness := ⟨witness⟩
   rw [randomTape]
   exact map_uniform_garblingRandomness_fixedDaviesMeyerHashSplit
+    witness location window label
+
+/-- A complete-tape gate hash stays uniform for dependent gate metadata. -/
+theorem map_randomTape_dependentGateDaviesMeyerHashSplit
+    (witness : Garbling.Randomness) (parameter : Nat)
+    (location : GarblingRandomnessRest → Pipeline.FixedKeyLocation)
+    (window : GarblingRandomnessRest → Nat)
+    (label : GarblingRandomnessRest → Block) :
+    (randomTape witness parameter).map
+        (fun randomness =>
+          let rest := garblingRandomnessRest randomness
+          hashLiftSplitEquiv
+            (fixedDaviesMeyerHashLift (location rest) (window rest)
+              (label rest) randomness.fixedKeyOracle)) =
+      PMF.uniformOfFintype (GoodHashLift ⊕ BadHashLift) := by
+  letI : Nonempty Garbling.Randomness := ⟨witness⟩
+  rw [randomTape]
+  exact map_uniform_garblingRandomness_dependentDaviesMeyerHashSplit
     witness location window label
 
 /-- This event selects the rejected suffix after the exact split. -/
@@ -722,6 +775,23 @@ theorem randomTape_dependentDaviesMeyerHashSplit_badMass
       ((2 ^ 384 % baseFieldModulus : Nat) : ENNReal) /
         ((2 ^ 384 : Nat) : ENNReal) := by
   rw [map_randomTape_dependentDaviesMeyerHashSplit]
+  exact uniform_hashLiftBadSet_mass
+
+/-- Dependent gate metadata keeps the exact complete-tape suffix mass. -/
+theorem randomTape_dependentGateDaviesMeyerHashSplit_badMass
+    (witness : Garbling.Randomness) (parameter : Nat)
+    (location : GarblingRandomnessRest → Pipeline.FixedKeyLocation)
+    (window : GarblingRandomnessRest → Nat)
+    (label : GarblingRandomnessRest → Block) :
+    ((randomTape witness parameter).map
+        (fun randomness =>
+          let rest := garblingRandomnessRest randomness
+          hashLiftSplitEquiv
+            (fixedDaviesMeyerHashLift (location rest) (window rest)
+              (label rest) randomness.fixedKeyOracle))).toOuterMeasure hashLiftBadSet =
+      ((2 ^ 384 % baseFieldModulus : Nat) : ENNReal) /
+        ((2 ^ 384 : Nat) : ENNReal) := by
+  rw [map_randomTape_dependentGateDaviesMeyerHashSplit]
   exact uniform_hashLiftBadSet_mass
 
 /-- The rejected mass is at most one field modulus over the hash domain. -/

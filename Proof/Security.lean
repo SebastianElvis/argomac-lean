@@ -906,6 +906,37 @@ def bitAdaptorEvaluationCount : Nat :=
 
 theorem bitAdaptorEvaluationCountValue : bitAdaptorEvaluationCount = 301752 := by decide
 
+/-- This event records one selected gate's rejected hash-lift suffix. -/
+def dependentHashLiftBadEvent
+    (location : Fin bitAdaptorEvaluationCount →
+      GarblingRandomnessRest → Pipeline.FixedKeyLocation)
+    (window : Fin bitAdaptorEvaluationCount → GarblingRandomnessRest → Nat)
+    (label : Fin bitAdaptorEvaluationCount → GarblingRandomnessRest → Block)
+    (index : Fin bitAdaptorEvaluationCount) : Set Garbling.Randomness :=
+  fun randomness => hashLiftSplitEquiv
+    (fixedDaviesMeyerHashLift
+      (location index (garblingRandomnessRest randomness))
+      (window index (garblingRandomnessRest randomness))
+      (label index (garblingRandomnessRest randomness))
+      randomness.fixedKeyOracle) ∈ hashLiftBadSet
+
+/-- Each selected dependent-label event has the exact complete-tape mass. -/
+theorem randomTape_dependentHashLiftBadEvent_mass
+    (witness : Garbling.Randomness) (parameter : Nat)
+    (location : Fin bitAdaptorEvaluationCount →
+      GarblingRandomnessRest → Pipeline.FixedKeyLocation)
+    (window : Fin bitAdaptorEvaluationCount → GarblingRandomnessRest → Nat)
+    (label : Fin bitAdaptorEvaluationCount → GarblingRandomnessRest → Block)
+    (index : Fin bitAdaptorEvaluationCount) :
+    (randomTape witness parameter).toOuterMeasure
+        (dependentHashLiftBadEvent location window label index) =
+      ((2 ^ 384 % BN254.baseFieldModulus : Nat) : ENNReal) /
+        ((2 ^ 384 : Nat) : ENNReal) := by
+  rw [← randomTape_dependentGateDaviesMeyerHashSplit_badMass witness parameter
+    (location index) (window index) (label index)]
+  rw [PMF.toOuterMeasure_map_apply]
+  rfl
+
 /-- This is the aggregate mass bound for all selected hash lifts. -/
 noncomputable def hashLiftAggregateMass : ENNReal :=
   ((bitAdaptorEvaluationCount * BN254.baseFieldModulus : Nat) : ENNReal) /
@@ -936,6 +967,23 @@ theorem selectedHashLiftBadUnion_mass_le
       rw [hashLiftAggregateMass, Fintype.card_fin, castProduct]
       simp only [div_eq_mul_inv]
       ring
+
+set_option exponentiation.threshold 400 in
+/-- All dependent-label gate failures have the aggregate security-tape bound. -/
+theorem selectedDependentHashLiftBadUnion_mass_le
+    (witness : Garbling.Randomness) (parameter : Nat)
+    (location : Fin bitAdaptorEvaluationCount →
+      GarblingRandomnessRest → Pipeline.FixedKeyLocation)
+    (window : Fin bitAdaptorEvaluationCount → GarblingRandomnessRest → Nat)
+    (label : Fin bitAdaptorEvaluationCount → GarblingRandomnessRest → Block) :
+    (randomTape witness parameter).toOuterMeasure
+        (⋃ index, dependentHashLiftBadEvent location window label index) ≤
+      hashLiftAggregateMass := by
+  apply selectedHashLiftBadUnion_mass_le
+  intro index
+  rw [randomTape_dependentHashLiftBadEvent_mass]
+  apply ENNReal.div_le_div_right
+  exact_mod_cast hashLiftRemainder_lt_baseFieldModulus.le
 
 /-- This is the bound shape for the total 384-bit lift rounding term. -/
 noncomputable def hashLiftRoundingError : ℝ :=
@@ -971,6 +1019,84 @@ theorem selectedHashLiftBadUnion_toReal_le
       exact ENNReal.mul_ne_top (by simp) (by simp)
     · norm_num
   · exact selectedHashLiftBadUnion_mass_le measure event localBound
+
+set_option exponentiation.threshold 400 in
+/-- The real dependent-label union mass is at most the rounding error. -/
+theorem selectedDependentHashLiftBadUnion_toReal_le
+    (witness : Garbling.Randomness) (parameter : Nat)
+    (location : Fin bitAdaptorEvaluationCount →
+      GarblingRandomnessRest → Pipeline.FixedKeyLocation)
+    (window : Fin bitAdaptorEvaluationCount → GarblingRandomnessRest → Nat)
+    (label : Fin bitAdaptorEvaluationCount → GarblingRandomnessRest → Block) :
+    ((randomTape witness parameter).toOuterMeasure
+        (⋃ index, dependentHashLiftBadEvent location window label index)).toReal ≤
+      hashLiftRoundingError := by
+  apply selectedHashLiftBadUnion_toReal_le
+  intro index
+  rw [randomTape_dependentHashLiftBadEvent_mass]
+  apply ENNReal.div_le_div_right
+  exact_mod_cast hashLiftRemainder_lt_baseFieldModulus.le
+
+/-- This schedule contains the real selected locations, windows, and labels. -/
+def selectedGateMetadataSchedule (rest : GarblingRandomnessRest)
+    (input : BN254.AffineInput) : List GateDirective :=
+  let curve := defaultSimulatorCoin.tableSample.curveRequest.retarget input
+    rest.algebraic.field.bridgeKey
+  let curveInputMac := rest.inputMacKey.encodeAffine input
+  let pointInputMac := EncPRF.transformMac rest.encPRFOracle
+    (EncPRF.whiteningKeys rest.hashOracle rest.algebraic.field.bridgeKey)
+    (BitInput.ofAffine input) curveInputMac
+  pipelineGateSchedule curve defaultSimulatorCoin.tableSample.pointRequests input
+    curveInputMac pointInputMac
+
+/-- The selected metadata schedule contains all 301,752 gates. -/
+theorem selectedGateMetadataSchedule_length (rest : GarblingRandomnessRest)
+    (input : BN254.AffineInput) :
+    (selectedGateMetadataSchedule rest input).length = bitAdaptorEvaluationCount := by
+  rw [selectedGateMetadataSchedule, pipelineGateSchedule_length]
+  rfl
+
+/-- This value selects one gate from the complete metadata schedule. -/
+def selectedGateMetadataDirective (rest : GarblingRandomnessRest)
+    (input : BN254.AffineInput)
+    (index : Fin bitAdaptorEvaluationCount) : GateDirective :=
+  (selectedGateMetadataSchedule rest input).get ⟨index.val, by
+    rw [selectedGateMetadataSchedule_length]
+    exact index.isLt⟩
+
+/-- This event records one actual selected gate's rejected hash lift. -/
+def selectedGateHashBadEvent (input : BN254.AffineInput)
+    (index : Fin bitAdaptorEvaluationCount) : Set Garbling.Randomness :=
+  dependentHashLiftBadEvent
+    (fun selected rest => (selectedGateMetadataDirective rest input selected).location)
+    (fun selected rest => (selectedGateMetadataDirective rest input selected).window)
+    (fun selected rest => (selectedGateMetadataDirective rest input selected).label)
+    index
+
+set_option exponentiation.threshold 400 in
+/-- The actual selected gate suffix union has the aggregate security-tape bound. -/
+theorem selectedGateHashBadUnion_mass_le
+    (witness : Garbling.Randomness) (parameter : Nat)
+    (input : BN254.AffineInput) :
+    (randomTape witness parameter).toOuterMeasure
+        (⋃ index, selectedGateHashBadEvent input index) ≤ hashLiftAggregateMass := by
+  exact selectedDependentHashLiftBadUnion_mass_le witness parameter
+    (fun selected rest => (selectedGateMetadataDirective rest input selected).location)
+    (fun selected rest => (selectedGateMetadataDirective rest input selected).window)
+    (fun selected rest => (selectedGateMetadataDirective rest input selected).label)
+
+set_option exponentiation.threshold 400 in
+/-- The real selected gate suffix union is at most the rounding error. -/
+theorem selectedGateHashBadUnion_toReal_le
+    (witness : Garbling.Randomness) (parameter : Nat)
+    (input : BN254.AffineInput) :
+    ((randomTape witness parameter).toOuterMeasure
+        (⋃ index, selectedGateHashBadEvent input index)).toReal ≤
+      hashLiftRoundingError := by
+  exact selectedDependentHashLiftBadUnion_toReal_le witness parameter
+    (fun selected rest => (selectedGateMetadataDirective rest input selected).location)
+    (fun selected rest => (selectedGateMetadataDirective rest input selected).window)
+    (fun selected rest => (selectedGateMetadataDirective rest input selected).label)
 
 set_option exponentiation.threshold 400 in
 /-- The total lift rounding term retains 100-bit arithmetic. -/
