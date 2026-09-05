@@ -313,6 +313,11 @@ Lean lifts an exact handler equivalence through every bounded adversary oracle p
 Exact replay transports each real trace to the recording handler and preserves its result, query list, count, and final state.
 A shared-sample coupling gives both traced marginals, equal results and query lists, and related final states.
 Its structural form composes both adversary phases through an exact related-state bridge with zero result-disagreement mass.
+The bounded form accepts a bridge that returns an exact result or records a bad event.
+It keeps both marginals exact by using an independent coupling only after a bad event.
+Lean proves that every result disagreement implies the bad flag.
+It also proves that the final bad mass equals the bridge bad probability.
+The final coupling theorem bounds the result advantage by that probability.
 The permutation and hash involutions extend to the complete shared simulator state.
 Fresh state swaps preserve every shared transcript and label invariant.
 Each safe ideal-oracle query commutes with the matching full-state swap.
@@ -348,7 +353,8 @@ Fixed-key programming preserves the EncPRF and hash oracles.
 A satisfied linked schedule equals the full pipeline evaluation and returns all requested values.
 
 The complete row repairs the known perfect-correctness failure.
-The construction still lacks an exact or bounded circuit-programming bridge for adaptive privacy.
+The generic bounded bridge is complete.
+The construction still lacks the ArgoMAC bridge that programs the selected circuit and bounds its collision probability.
 The worst selected branch uses the three hash slots.
 Its zero-query numerator is
 \[
@@ -361,8 +367,10 @@ For a bucket with $f$ false selections and $t$ true selections, Lean proves
 $3f^2+2t^2\leq 3(f+t)^2$ and $3f+2t\leq 3(f+t)$.
 Thus, mixed selected bits stay below the three-hash bucket budget.
 The semantic reduction must still condition on the selected branch.
-The current Lean challenge library also defines no \texttt{Kriterion.Benchmark.garble}.
-The PR does not forge either missing item.
+A companion Kriterion change closes the challenge interface defects.
+It makes \texttt{Kriterion.Solution} a closed dependent bundle.
+It also defines \texttt{Kriterion.Benchmark.garble} at a fixed scalar, security parameter, and seed.
+The challenge must still reject this entry until the construction-specific adaptive proof is complete.
 
 \section{Reproduction}
 
@@ -370,7 +378,7 @@ The Lean proof uses Lean 4.24 and the pinned Mathlib checkout.
 Run:
 \begingroup\small
 \begin{verbatim}
-lake build Proof Correctness
+lake build Proof Tests
 lake env lean entry/tests/Correctness.lean
 lake env lean AxiomCheck.lean
 lake exe bench

@@ -6,7 +6,7 @@ The paper source is https://github.com/babylonlabs-io/BaBe.latex/tree/e2dcf4d540
 
 import Construction.Garbling
 import Cryptography.Assumptions
-import Proof.Simulator
+import Proof.BoundedBridge
 import Security.AdaptivePrivacy
 
 namespace Kriterion.ArgoMAC.Security
@@ -219,6 +219,79 @@ theorem advantage_le_of_tracedCoupling
         boolDisagreement ≤ error
     rw [PMF.toOuterMeasure_map_apply]
     exact disagreementBound
+
+/-- A bounded bridge coupling gives a bound on its result advantage. -/
+theorem advantage_runOracleProgramsBoundedBridgeTraceCoupling
+    {oracle : OracleSpec.{uQuery, uAnswer}}
+    {FirstResult MiddleResult StateOne StateTwo : Type uSample}
+    (handlerOne : OracleHandler oracle StateOne)
+    (handlerTwo : OracleHandler oracle StateTwo)
+    (related : StateOne → StateTwo → Prop)
+    (handlerRelated : ∀ query stateOne stateTwo, related stateOne stateTwo →
+      (handlerOne query stateOne).1 = (handlerTwo query stateTwo).1 ∧
+        related (handlerOne query stateOne).2 (handlerTwo query stateTwo).2)
+    {firstBudget secondBudget : Nat}
+    (first : OracleProgram oracle FirstResult firstBudget)
+    (bridgeOne : FirstResult → StateOne → PMF (MiddleResult × StateOne))
+    (bridgeTwo : FirstResult → StateTwo → PMF (MiddleResult × StateTwo))
+    (bridgeCoupling : FirstResult → (stateOne : StateOne) →
+      (stateTwo : StateTwo) → related stateOne stateTwo →
+        PMF (RelatedOrBadBridgeOutput MiddleResult StateOne StateTwo related))
+    (bridgeFst : ∀ result stateOne stateTwo statesRelated,
+      (bridgeCoupling result stateOne stateTwo statesRelated).map
+          RelatedOrBadBridgeOutput.first = bridgeOne result stateOne)
+    (bridgeSnd : ∀ result stateOne stateTwo statesRelated,
+      (bridgeCoupling result stateOne stateTwo statesRelated).map
+          RelatedOrBadBridgeOutput.second = bridgeTwo result stateTwo)
+    (second : FirstResult → MiddleResult →
+      OracleProgram oracle Bool secondBudget)
+    (stateOne : StateOne) (stateTwo : StateTwo)
+    (statesRelated : related stateOne stateTwo)
+    (error : ENNReal) (errorFinite : error ≠ ⊤)
+    (badBound :
+      (runOracleProgramsBoundedBridgeTraceCoupling handlerOne handlerTwo related
+        handlerRelated first bridgeCoupling second stateOne stateTwo
+        statesRelated).toOuterMeasure { output | output.2 = true } ≤ error) :
+    advantage
+        ((runOracleProgramsWithBridgeTrace handlerOne first bridgeOne second stateOne).map
+          Prod.fst)
+        ((runOracleProgramsWithBridgeTrace handlerTwo first bridgeTwo second stateTwo).map
+          Prod.fst) ≤
+      error.toReal := by
+  let flagged := runOracleProgramsBoundedBridgeTraceCoupling handlerOne handlerTwo related
+    handlerRelated first bridgeCoupling second stateOne stateTwo statesRelated
+  let joint := flagged.map Prod.fst
+  apply advantage_le_of_tracedCoupling
+    (runOracleProgramsWithBridgeTrace handlerOne first bridgeOne second stateOne)
+    (runOracleProgramsWithBridgeTrace handlerTwo first bridgeTwo second stateTwo)
+    ((runOracleProgramsWithBridgeTrace handlerOne first bridgeOne second stateOne).map
+      Prod.fst)
+    ((runOracleProgramsWithBridgeTrace handlerTwo first bridgeTwo second stateTwo).map
+      Prod.fst)
+    joint error
+  · calc
+      joint.map Prod.fst = flagged.map (fun output => output.1.1) := by
+        simp [joint, PMF.map_comp, Function.comp_def]
+      _ = runOracleProgramsWithBridgeTrace handlerOne first bridgeOne second stateOne := by
+        exact runOracleProgramsBoundedBridgeTraceCoupling_fst handlerOne handlerTwo related
+          handlerRelated first bridgeOne bridgeCoupling bridgeFst second stateOne stateTwo
+          statesRelated
+  · calc
+      joint.map Prod.snd = flagged.map (fun output => output.1.2) := by
+        simp [joint, PMF.map_comp, Function.comp_def]
+      _ = runOracleProgramsWithBridgeTrace handlerTwo first bridgeTwo second stateTwo := by
+        exact runOracleProgramsBoundedBridgeTraceCoupling_snd handlerOne handlerTwo related
+          handlerRelated first bridgeTwo bridgeCoupling bridgeSnd second stateOne stateTwo
+          statesRelated
+  · rfl
+  · rfl
+  · exact errorFinite
+  · change (flagged.map Prod.fst).toOuterMeasure
+        { sample | sample.1.1 ≠ sample.2.1 } ≤ error
+    rw [PMF.toOuterMeasure_map_apply]
+    exact (runOracleProgramsBoundedBridgeTraceCoupling_disagreement_le_bad
+      handlerOne handlerTwo related handlerRelated first bridgeCoupling second
+      stateOne stateTwo statesRelated).trans badBound
 
 /-- This coupling maps each first trace to one second trace. -/
 noncomputable def traceTransportCoupling
