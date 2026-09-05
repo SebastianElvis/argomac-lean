@@ -7,6 +7,7 @@ The paper source is https://github.com/babylonlabs-io/BaBe.latex/tree/e2dcf4d540
 import Construction.Garbling
 import Cryptography.Assumptions
 import Proof.BoundedBridge
+import Proof.PublicDistribution
 import Security.AdaptivePrivacy
 
 namespace Kriterion.ArgoMAC.Security
@@ -905,9 +906,71 @@ def bitAdaptorEvaluationCount : Nat :=
 
 theorem bitAdaptorEvaluationCountValue : bitAdaptorEvaluationCount = 301752 := by decide
 
+/-- This is the aggregate mass bound for all selected hash lifts. -/
+noncomputable def hashLiftAggregateMass : ENNReal :=
+  ((bitAdaptorEvaluationCount * BN254.baseFieldModulus : Nat) : ENNReal) /
+    ((2 ^ 384 : Nat) : ENNReal)
+
+set_option exponentiation.threshold 400 in
+/-- All selected hash-lift failures have this aggregate outer-measure bound. -/
+theorem selectedHashLiftBadUnion_mass_le
+    {Sample : Type uSample} (measure : MeasureTheory.OuterMeasure Sample)
+    (event : Fin bitAdaptorEvaluationCount → Set Sample)
+    (localBound : ∀ index, measure (event index) ≤
+      (BN254.baseFieldModulus : ENNReal) / ((2 ^ 384 : Nat) : ENNReal)) :
+    measure (⋃ index, event index) ≤ hashLiftAggregateMass := by
+  calc
+    measure (⋃ index, event index) ≤
+        (Fintype.card (Fin bitAdaptorEvaluationCount) : ENNReal) *
+          ((BN254.baseFieldModulus : ENNReal) /
+            ((2 ^ 384 : Nat) : ENNReal)) :=
+      finiteBadEventUnionMass_le measure event _ localBound
+    _ = hashLiftAggregateMass := by
+      have castProduct :
+          ((bitAdaptorEvaluationCount * BN254.baseFieldModulus : Nat) : ENNReal) =
+            (bitAdaptorEvaluationCount : ENNReal) *
+              (BN254.baseFieldModulus : ENNReal) := by
+        exact_mod_cast (Nat.cast_mul bitAdaptorEvaluationCount
+          BN254.baseFieldModulus :
+            (bitAdaptorEvaluationCount * BN254.baseFieldModulus : Nat) = _)
+      rw [hashLiftAggregateMass, Fintype.card_fin, castProduct]
+      simp only [div_eq_mul_inv]
+      ring
+
 /-- This is the bound shape for the total 384-bit lift rounding term. -/
 noncomputable def hashLiftRoundingError : ℝ :=
   ((bitAdaptorEvaluationCount * BN254.baseFieldModulus : Nat) : ℝ) / (2 : ℝ) ^ 384
+
+set_option exponentiation.threshold 400 in
+/-- The aggregate mass converts to the challenge's real-valued error term. -/
+theorem hashLiftAggregateMass_toReal :
+    hashLiftAggregateMass.toReal = hashLiftRoundingError := by
+  rw [hashLiftAggregateMass, hashLiftRoundingError, ENNReal.toReal_div]
+  norm_num
+
+set_option exponentiation.threshold 400 in
+/-- The real mass of all selected lift failures is at most the declared error. -/
+theorem selectedHashLiftBadUnion_toReal_le
+    {Sample : Type uSample} (measure : MeasureTheory.OuterMeasure Sample)
+    (event : Fin bitAdaptorEvaluationCount → Set Sample)
+    (localBound : ∀ index, measure (event index) ≤
+      (BN254.baseFieldModulus : ENNReal) / ((2 ^ 384 : Nat) : ENNReal)) :
+    (measure (⋃ index, event index)).toReal ≤ hashLiftRoundingError := by
+  rw [← hashLiftAggregateMass_toReal]
+  apply ENNReal.toReal_mono
+  · rw [hashLiftAggregateMass]
+    apply ENNReal.div_ne_top
+    · have castProduct :
+          ((bitAdaptorEvaluationCount * BN254.baseFieldModulus : Nat) : ENNReal) =
+            (bitAdaptorEvaluationCount : ENNReal) *
+              (BN254.baseFieldModulus : ENNReal) := by
+          exact_mod_cast (Nat.cast_mul bitAdaptorEvaluationCount
+            BN254.baseFieldModulus :
+              (bitAdaptorEvaluationCount * BN254.baseFieldModulus : Nat) = _)
+      rw [castProduct]
+      exact ENNReal.mul_ne_top (by simp) (by simp)
+    · norm_num
+  · exact selectedHashLiftBadUnion_mass_le measure event localBound
 
 set_option exponentiation.threshold 400 in
 /-- The total lift rounding term retains 100-bit arithmetic. -/

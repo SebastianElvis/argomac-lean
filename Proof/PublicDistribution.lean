@@ -10,7 +10,7 @@ open BN254 Cryptography
 
 noncomputable section
 
-universe uSource uTarget
+universe uSource uTarget uSample uIndex
 
 /-- An equivalence transports a finite uniform distribution between two types. -/
 theorem map_uniformOfFintype_equivBetween
@@ -28,6 +28,18 @@ theorem map_uniformOfFintype_equivBetween
   rw [Fintype.card_congr equivalence]
   exact (tsum_ite_eq (equivalence.symm output)
     (Inv.inv (Fintype.card Target : ENNReal))).symm
+
+/-- A finite union has at most the sum of its local event bounds. -/
+theorem finiteBadEventUnionMass_le
+    {Sample : Type uSample} {Index : Type uIndex} [Fintype Index]
+    (measure : MeasureTheory.OuterMeasure Sample) (event : Index → Set Sample)
+    (bound : ENNReal) (localBound : ∀ index, measure (event index) ≤ bound) :
+    measure (⋃ index, event index) ≤ (Fintype.card Index : ENNReal) * bound := by
+  calc
+    measure (⋃ index, event index) ≤ ∑ index, measure (event index) :=
+      MeasureTheory.measure_iUnion_fintype_le measure event
+    _ ≤ ∑ _index : Index, bound := Finset.sum_le_sum fun index _ => localBound index
+    _ = (Fintype.card Index : ENNReal) * bound := by simp
 
 /-- A digit adaptor offset does not depend on its private slope. -/
 theorem digitBitsK_independentOfSlope
