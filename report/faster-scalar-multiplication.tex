@@ -312,6 +312,8 @@ Both oracle laws preserve the uniform fiber of fresh oracles that match a fixed 
 Lean also lifts an exact handler equivalence through every bounded adversary oracle program.
 It also replays each real query trace through the recording handler in exact PMF equality.
 Replay preserves the result, ordered query list, query count, and final recording state.
+Lean also runs one program under two related handlers with one shared sample tape.
+The joint PMF has both traced runs as exact marginals and has zero result-disagreement mass.
 The permutation and hash involutions extend to the complete shared simulator state.
 Fresh state swaps preserve every shared transcript and label invariant.
 Each safe ideal-oracle query commutes with the matching full-state swap.
@@ -347,7 +349,7 @@ Fixed-key programming preserves the EncPRF and hash oracles.
 A satisfied linked schedule equals the full pipeline evaluation and returns all requested values.
 
 The complete row repairs the known perfect-correctness failure.
-The construction still lacks the final distributional transport for adaptive privacy.
+The construction still lacks the circuit-programming transport for adaptive privacy.
 The worst selected branch uses the three hash slots.
 Its zero-query numerator is
 \[

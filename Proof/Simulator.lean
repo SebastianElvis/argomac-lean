@@ -663,6 +663,146 @@ theorem runOracleProgramWithTrace_replay_of_related
       funext sample
       exact inductionHypothesis sample stateOne stateTwo statesRelated
 
+/-- Run one program once and record its path under two handlers. -/
+noncomputable def runOracleProgramTraceCoupling
+    {oracle : OracleSpec.{uQuery, uAnswer}} {Result : Type uResult}
+    {StateOne : Type uStateOne} {StateTwo : Type uStateTwo}
+    (handlerOne : OracleHandler oracle StateOne)
+    (handlerTwo : OracleHandler oracle StateTwo) :
+    {budget : Nat} → OracleProgram oracle Result budget → StateOne → StateTwo →
+      PMF ((Result × StateOne × List (oracle.Query × StateOne)) ×
+        (Result × StateTwo × List (oracle.Query × StateTwo)))
+  | _, .pure result, stateOne, stateTwo =>
+      result.map fun value => ((value, stateOne, []), (value, stateTwo, []))
+  | _, .query request next, stateOne, stateTwo =>
+      let answeredOne := handlerOne request stateOne
+      let answeredTwo := handlerTwo request stateTwo
+      (runOracleProgramTraceCoupling handlerOne handlerTwo
+        (next answeredOne.1) answeredOne.2 answeredTwo.2).map fun output =>
+          ((output.1.1, output.1.2.1, (request, stateOne) :: output.1.2.2),
+            (output.2.1, output.2.2.1, (request, stateTwo) :: output.2.2.2))
+  | _, .sample distribution next, stateOne, stateTwo =>
+      distribution.bind fun value =>
+        runOracleProgramTraceCoupling handlerOne handlerTwo
+          (next value) stateOne stateTwo
+
+/-- The first marginal is the first traced handler run. -/
+theorem runOracleProgramTraceCoupling_fst
+    {oracle : OracleSpec.{uQuery, uAnswer}} {Result : Type uResult}
+    {StateOne : Type uStateOne} {StateTwo : Type uStateTwo}
+    (handlerOne : OracleHandler oracle StateOne)
+    (handlerTwo : OracleHandler oracle StateTwo)
+    {budget : Nat} (program : OracleProgram oracle Result budget)
+    (stateOne : StateOne) (stateTwo : StateTwo) :
+    (runOracleProgramTraceCoupling handlerOne handlerTwo program stateOne stateTwo).map
+        Prod.fst = runOracleProgramWithTrace handlerOne program stateOne := by
+  induction program generalizing stateOne stateTwo with
+  | pure result =>
+      simp [runOracleProgramTraceCoupling, runOracleProgramWithTrace,
+        PMF.map_comp, Function.comp_def]
+  | query request next inductionHypothesis =>
+      simp only [runOracleProgramTraceCoupling, runOracleProgramWithTrace]
+      rw [PMF.map_comp]
+      change (runOracleProgramTraceCoupling handlerOne handlerTwo
+          (next (handlerOne request stateOne).1) (handlerOne request stateOne).2
+          (handlerTwo request stateTwo).2).map
+            ((fun output =>
+              (output.1, output.2.1, (request, stateOne) :: output.2.2)) ∘ Prod.fst) = _
+      rw [← PMF.map_comp]
+      rw [inductionHypothesis]
+  | sample distribution next inductionHypothesis =>
+      simp only [runOracleProgramTraceCoupling, runOracleProgramWithTrace,
+        PMF.map_bind]
+      congr 1
+      funext sample
+      exact inductionHypothesis sample stateOne stateTwo
+
+/-- Related handlers give the second traced run as the second marginal. -/
+theorem runOracleProgramTraceCoupling_snd
+    {oracle : OracleSpec.{uQuery, uAnswer}} {Result : Type uResult}
+    {StateOne : Type uStateOne} {StateTwo : Type uStateTwo}
+    (handlerOne : OracleHandler oracle StateOne)
+    (handlerTwo : OracleHandler oracle StateTwo)
+    (related : StateOne → StateTwo → Prop)
+    (handlerRelated : ∀ query stateOne stateTwo, related stateOne stateTwo →
+      (handlerOne query stateOne).1 = (handlerTwo query stateTwo).1 ∧
+        related (handlerOne query stateOne).2 (handlerTwo query stateTwo).2)
+    {budget : Nat} (program : OracleProgram oracle Result budget)
+    (stateOne : StateOne) (stateTwo : StateTwo)
+    (statesRelated : related stateOne stateTwo) :
+    (runOracleProgramTraceCoupling handlerOne handlerTwo program stateOne stateTwo).map
+        Prod.snd = runOracleProgramWithTrace handlerTwo program stateTwo := by
+  induction program generalizing stateOne stateTwo with
+  | pure result =>
+      simp [runOracleProgramTraceCoupling, runOracleProgramWithTrace,
+        PMF.map_comp, Function.comp_def]
+  | query request next inductionHypothesis =>
+      simp only [runOracleProgramTraceCoupling, runOracleProgramWithTrace]
+      have nextRelated := handlerRelated request stateOne stateTwo statesRelated
+      rw [nextRelated.1]
+      rw [PMF.map_comp]
+      change (runOracleProgramTraceCoupling handlerOne handlerTwo
+          (next (handlerTwo request stateTwo).1) (handlerOne request stateOne).2
+          (handlerTwo request stateTwo).2).map
+            ((fun output =>
+              (output.1, output.2.1, (request, stateTwo) :: output.2.2)) ∘ Prod.snd) = _
+      rw [← PMF.map_comp]
+      rw [inductionHypothesis _ _ _ nextRelated.2]
+  | sample distribution next inductionHypothesis =>
+      simp only [runOracleProgramTraceCoupling, runOracleProgramWithTrace,
+        PMF.map_bind]
+      congr 1
+      funext sample
+      exact inductionHypothesis sample stateOne stateTwo statesRelated
+
+/-- Both coupled traces contain the same program result. -/
+theorem runOracleProgramTraceCoupling_result_eq
+    {oracle : OracleSpec.{uQuery, uAnswer}} {Result : Type uResult}
+    {StateOne : Type uStateOne} {StateTwo : Type uStateTwo}
+    (handlerOne : OracleHandler oracle StateOne)
+    (handlerTwo : OracleHandler oracle StateTwo)
+    {budget : Nat} (program : OracleProgram oracle Result budget)
+    (stateOne : StateOne) (stateTwo : StateTwo)
+    (output :
+      (Result × StateOne × List (oracle.Query × StateOne)) ×
+        (Result × StateTwo × List (oracle.Query × StateTwo)))
+    (member : output ∈
+      (runOracleProgramTraceCoupling handlerOne handlerTwo
+        program stateOne stateTwo).support) :
+    output.1.1 = output.2.1 := by
+  induction program generalizing stateOne stateTwo output with
+  | pure result =>
+      simp only [runOracleProgramTraceCoupling, PMF.mem_support_map_iff] at member
+      rcases member with ⟨value, _, rfl⟩
+      rfl
+  | query request next inductionHypothesis =>
+      simp only [runOracleProgramTraceCoupling, PMF.mem_support_map_iff] at member
+      rcases member with ⟨tail, tailMember, rfl⟩
+      exact inductionHypothesis _ _ _ tail tailMember
+  | sample distribution next inductionHypothesis =>
+      simp only [runOracleProgramTraceCoupling, PMF.mem_support_bind_iff] at member
+      rcases member with ⟨value, _, tailMember⟩
+      exact inductionHypothesis value stateOne stateTwo output tailMember
+
+/-- The coupled result-disagreement event has zero mass. -/
+theorem runOracleProgramTraceCoupling_disagreement_mass
+    {oracle : OracleSpec.{uQuery, uAnswer}} {Result : Type uResult}
+    {StateOne : Type uStateOne} {StateTwo : Type uStateTwo}
+    (handlerOne : OracleHandler oracle StateOne)
+    (handlerTwo : OracleHandler oracle StateTwo)
+    {budget : Nat} (program : OracleProgram oracle Result budget)
+    (stateOne : StateOne) (stateTwo : StateTwo) :
+    (runOracleProgramTraceCoupling handlerOne handlerTwo program stateOne stateTwo).toOuterMeasure
+        { output | output.1.1 ≠ output.2.1 } = 0 := by
+  rw [PMF.toOuterMeasure_apply, ENNReal.tsum_eq_zero]
+  intro output
+  by_cases different : output.1.1 ≠ output.2.1
+  · rw [Set.indicator_of_mem different, PMF.apply_eq_zero_iff]
+    intro member
+    exact different (runOracleProgramTraceCoupling_result_eq handlerOne handlerTwo
+      program stateOne stateTwo output member)
+  · rw [Set.indicator_of_notMem different]
+
 /-- This value identifies one layer in the composed circuit. -/
 inductive Layer
   | input

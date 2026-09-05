@@ -101,6 +101,10 @@ theorem hashLiftRoundingArithmeticHas100Bits :
 #print axioms ArgoMAC.Security.replayQueryTrace_append
 #print axioms ArgoMAC.Security.replayQueryTrace_length
 #print axioms ArgoMAC.Security.replayQueryTrace_queries
+#print axioms ArgoMAC.Security.runOracleProgramTraceCoupling_fst
+#print axioms ArgoMAC.Security.runOracleProgramTraceCoupling_snd
+#print axioms ArgoMAC.Security.runOracleProgramTraceCoupling_result_eq
+#print axioms ArgoMAC.Security.runOracleProgramTraceCoupling_disagreement_mass
 #print axioms ArgoMAC.Security.initialState_realIdealOracleRelated
 #print axioms ArgoMAC.Security.realIdealOracleHandlers_related
 #print axioms ArgoMAC.Security.oracleProgram_real_ideal_result
