@@ -246,8 +246,10 @@ The root seed is erased after row construction.
 Jobs borrow output keys.
 They do not copy those secret keys into a second vector.
 Fixed Boolean arrays replace heap-based coefficient index sets.
-One byte packs each fixed-key level, sub-bucket, role, and slot.
-The injective 54-byte KDF input and its padding fit in one SHA-256 compression block.
+One byte packs each fixed-key level and digest-pair index.
+Eight injective 54-byte inputs derive the 15 AES keys.
+Each input and its padding fit in one SHA-256 compression block.
+Each 256-bit digest supplies two 128-bit keys; one final half is unused.
 The 384-bit hash-to-field reducer reads the three AES blocks directly.
 It avoids generic slice loops and a 48-byte staging copy.
 The 256-bit field pad uses four explicit little-endian limb XOR operations.
@@ -256,17 +258,18 @@ A second test compares all 273 allocated child nonces with the serial schedule.
 
 On the same Apple M5, the ARMv8 AES benchmarks used 100 Criterion samples.
 The incomplete 92-row serial baseline estimate was 15.934 ms.
-The complete 91-row, 10-worker row mean is 3.081 ms.
-Its 95 percent interval is 3.066 to 3.096 ms.
-The complete row stage is 5.17 times faster than the serial baseline.
+The complete 91-row, 10-worker row mean is 2.876 ms.
+Its 95 percent interval is 2.861 to 2.893 ms.
+The complete row stage is 5.54 times faster than the serial baseline.
 Direct field-limb XOR lowered its adjacent row mean by 8.7 percent.
 Direct hash-block reduction then lowered its adjacent mean by 4.5 percent.
 The one-block KDF lowered its adjacent mean by a further 8.7 percent.
+Digest pairing then lowered its adjacent mean by 7.9 percent.
 
-The protocol \texttt{encode} mean is 68.741 ms.
-Its 95 percent interval is 68.608 to 68.894 ms.
+The protocol \texttt{encode} mean is 68.190 ms.
+Its 95 percent interval is 67.963 to 68.581 ms.
 The comparable baseline is 81.309 ms.
-The complete implementation reduces this time by 15.5 percent.
+The complete implementation reduces this time by 16.1 percent.
 Its HMAC table has 9,668,659 bytes.
 This is 2,970,240 bytes larger than the incomplete 91-row table.
 
