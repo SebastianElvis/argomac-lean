@@ -29,6 +29,157 @@ theorem map_uniformOfFintype_equivBetween
   exact (tsum_ite_eq (equivalence.symm output)
     (Inv.inv (Fintype.card Target : ENNReal))).symm
 
+/-- The second part of a finite uniform product is uniform. -/
+theorem map_uniform_prod_snd
+    {First : Type uSource} {Second : Type uTarget}
+    [Fintype First] [Nonempty First] [Fintype Second] [Nonempty Second] :
+    (PMF.uniformOfFintype (First × Second)).map Prod.snd =
+      PMF.uniformOfFintype Second := by
+  classical
+  apply PMF.ext
+  intro output
+  rw [PMF.map_apply]
+  simp only [PMF.uniformOfFintype_apply, Fintype.card_prod]
+  rw [ENNReal.tsum_prod']
+  push_cast
+  rw [ENNReal.mul_inv] <;> try simp [Fintype.card_ne_zero]
+  rw [tsum_eq_single output]
+  · simp only [if_pos]
+    rw [← mul_assoc, ENNReal.mul_inv_cancel]
+    · simp
+    · exact_mod_cast Fintype.card_ne_zero
+    · simp
+  · intro other different
+    simp [Ne.symm different]
+
+/-- The first part of a finite uniform product is uniform. -/
+theorem map_uniform_prod_fst
+    {First : Type uSource} {Second : Type uTarget}
+    [Fintype First] [Nonempty First] [Fintype Second] [Nonempty Second] :
+    (PMF.uniformOfFintype (First × Second)).map Prod.fst =
+      PMF.uniformOfFintype First := by
+  calc
+    (PMF.uniformOfFintype (First × Second)).map Prod.fst =
+        ((PMF.uniformOfFintype (First × Second)).map
+          (Equiv.prodComm First Second)).map Prod.snd := by
+            rw [PMF.map_comp]
+            rfl
+    _ = (PMF.uniformOfFintype (Second × First)).map Prod.snd := by
+      rw [map_uniformOfFintype_equivBetween]
+    _ = PMF.uniformOfFintype First := map_uniform_prod_snd
+
+/-- A function that ignores the second uniform part keeps its first marginal. -/
+theorem map_uniform_prod_ignore_snd
+    {First : Type uSource} {Second : Type uTarget} {Output : Type uSample}
+    [Fintype First] [Nonempty First] [Fintype Second] [Nonempty Second]
+    (function : First → Output) :
+    (PMF.uniformOfFintype (First × Second)).map (function ∘ Prod.fst) =
+      (PMF.uniformOfFintype First).map function := by
+  rw [← PMF.map_comp]
+  rw [map_uniform_prod_fst]
+
+/-- A swap-programmed target tape keeps a uniform marginal. -/
+theorem map_uniform_swapProgramTapeSchedule_snd
+    {Index : Type uIndex} {Slot : Type uSample}
+    [Fintype Index] [DecidableEq Index]
+    [Fintype Slot] [DecidableEq Slot]
+    (schedule : List (Index × Block × Slot)) :
+    (PMF.uniformOfFintype
+      (PermutationOracle Index Block × (Slot → Block))).map
+        (fun sample => (swapProgramTapeScheduleEquiv schedule sample).2) =
+      PMF.uniformOfFintype (Slot → Block) := by
+  rw [show (fun sample => (swapProgramTapeScheduleEquiv schedule sample).2) =
+      Prod.snd ∘ swapProgramTapeScheduleEquiv schedule from rfl]
+  rw [← PMF.map_comp]
+  rw [map_uniform_swapProgramTapeSchedule]
+  exact map_uniform_prod_snd
+
+/-- This schedule reads the three hash permutations for one fixed gate. -/
+def hashTapeSchedule (location : Pipeline.FixedKeyLocation)
+    (window : Nat) (label : Block) :
+    List (Pipeline.FixedKeyIndex × Block × Fin 3) :=
+  [
+    (fixedKeyIndex location window (.hash 0), label, 0),
+    (fixedKeyIndex location window (.hash 1), label, 1),
+    (fixedKeyIndex location window (.hash 2), label, 2)
+  ]
+
+/-- The schedule tape contains the original three permutation outputs. -/
+theorem swapProgramHashTapeSchedule_snd
+    (oracle : PermutationOracle Pipeline.FixedKeyIndex Block)
+    (tape : Fin 3 → Block) (location : Pipeline.FixedKeyLocation)
+    (window : Nat) (label : Block) :
+    (swapProgramTapeScheduleEquiv (hashTapeSchedule location window label)
+      (oracle, tape)).2 =
+      fun slot => oracle.permutation (fixedKeyIndex location window (.hash slot)) label := by
+  funext slot
+  fin_cases slot <;>
+    simp [hashTapeSchedule, swapProgramTapeScheduleEquiv,
+      swapProgramTapeStepEquiv, Function.Involutive.toPerm,
+      swapProgramTapeStep, programPermutation, fixedKeyIndex]
+
+/-- Three fixed-gate permutation outputs are jointly uniform. -/
+theorem map_uniform_fixedHashBlocks
+    (location : Pipeline.FixedKeyLocation) (window : Nat) (label : Block) :
+    (PMF.uniformOfFintype
+      (PermutationOracle Pipeline.FixedKeyIndex Block)).map
+        (fun (oracle : PermutationOracle Pipeline.FixedKeyIndex Block) slot => oracle.permutation
+          (fixedKeyIndex location window (.hash slot)) label) =
+      PMF.uniformOfFintype (Fin 3 → Block) := by
+  let output : PermutationOracle Pipeline.FixedKeyIndex Block → Fin 3 → Block :=
+    fun oracle slot => oracle.permutation
+      (fixedKeyIndex location window (.hash slot)) label
+  rw [← map_uniform_prod_ignore_snd
+    (Second := Fin 3 → Block) output]
+  calc
+    (PMF.uniformOfFintype
+      (PermutationOracle Pipeline.FixedKeyIndex Block × (Fin 3 → Block))).map
+        (output ∘ Prod.fst) =
+      (PMF.uniformOfFintype
+        (PermutationOracle Pipeline.FixedKeyIndex Block × (Fin 3 → Block))).map
+          (fun sample => (swapProgramTapeScheduleEquiv
+            (hashTapeSchedule location window label) sample).2) := by
+        congr 1
+        funext sample
+        exact (swapProgramHashTapeSchedule_snd sample.1 sample.2
+          location window label).symm
+    _ = PMF.uniformOfFintype (Fin 3 → Block) :=
+      map_uniform_swapProgramTapeSchedule_snd _
+
+/-- This map applies Davies--Meyer feed-forward to three blocks. -/
+def xorHashBlockTape (label : Block) (tape : Fin 3 → Block) : Fin 3 → Block :=
+  fun slot => tape slot ^^^ label
+
+theorem xorHashBlockTape_involutive (label : Block) :
+    Function.Involutive (xorHashBlockTape label) := by
+  intro tape
+  funext slot
+  simp only [xorHashBlockTape]
+  rw [BitVec.xor_assoc, BitVec.xor_self, BitVec.xor_zero]
+
+/-- Davies--Meyer feed-forward is an equivalence on the three-block tape. -/
+def xorHashBlockTapeEquiv (label : Block) :
+    (Fin 3 → Block) ≃ (Fin 3 → Block) :=
+  (xorHashBlockTape_involutive label).toPerm
+
+/-- Three fixed-gate Davies--Meyer blocks are jointly uniform. -/
+theorem map_uniform_fixedDaviesMeyerBlocks
+    (location : Pipeline.FixedKeyLocation) (window : Nat) (label : Block) :
+    (PMF.uniformOfFintype
+      (PermutationOracle Pipeline.FixedKeyIndex Block)).map
+        (fun (oracle : PermutationOracle Pipeline.FixedKeyIndex Block) slot =>
+          oracle.permutation (fixedKeyIndex location window (.hash slot)) label ^^^ label) =
+      PMF.uniformOfFintype (Fin 3 → Block) := by
+  let output : PermutationOracle Pipeline.FixedKeyIndex Block → Fin 3 → Block :=
+    fun oracle slot => oracle.permutation
+      (fixedKeyIndex location window (.hash slot)) label
+  rw [show (fun (oracle : PermutationOracle Pipeline.FixedKeyIndex Block) slot =>
+      oracle.permutation (fixedKeyIndex location window (.hash slot)) label ^^^ label) =
+      xorHashBlockTape label ∘ output from rfl]
+  rw [← PMF.map_comp]
+  rw [map_uniform_fixedHashBlocks]
+  exact map_uniformOfFintype_equivBetween (xorHashBlockTapeEquiv label)
+
 /-- A finite union has at most the sum of its local event bounds. -/
 theorem finiteBadEventUnionMass_le
     {Sample : Type uSample} {Index : Type uIndex} [Fintype Index]
@@ -255,6 +406,12 @@ theorem map_uniform_goodHashLiftEquiv :
       PMF.uniformOfFintype (BaseField × HashLiftQuotient) :=
   map_uniformOfFintype_equivBetween goodHashLiftEquiv
 
+/-- Uniform residues and quotients give uniform complete-fiber hash values. -/
+theorem map_uniform_goodHashLiftEquiv_symm :
+    (PMF.uniformOfFintype (BaseField × HashLiftQuotient)).map
+        goodHashLiftEquiv.symm = PMF.uniformOfFintype GoodHashLift :=
+  map_uniformOfFintype_equivBetween goodHashLiftEquiv.symm
+
 /-- The rejected 384-bit suffix is smaller than one field fiber. -/
 theorem hashLiftRemainder_lt_baseFieldModulus :
     2 ^ 384 % baseFieldModulus < baseFieldModulus := by
@@ -277,6 +434,49 @@ set_option exponentiation.threshold 400 in
 instance fullHashLiftNonempty : Nonempty FullHashLift :=
   ⟨⟨0, by decide⟩⟩
 
+/-- A full hash lift is exactly three fixed-key blocks. -/
+def fullHashLiftBlockEquiv : FullHashLift ≃ (Fin 3 → Block) :=
+  BitVec.equivFin.symm.toEquiv.trans hashLiftBlockEquiv
+
+/-- Uniform full hash lifts give three uniform blocks. -/
+theorem map_uniform_fullHashLiftBlockEquiv :
+    (PMF.uniformOfFintype FullHashLift).map fullHashLiftBlockEquiv =
+      PMF.uniformOfFintype (Fin 3 → Block) :=
+  map_uniformOfFintype_equivBetween fullHashLiftBlockEquiv
+
+/-- This value is the complete Davies--Meyer hash lift for one fixed gate. -/
+def fixedDaviesMeyerHashLift (location : Pipeline.FixedKeyLocation)
+    (window : Nat) (label : Block)
+    (oracle : PermutationOracle Pipeline.FixedKeyIndex Block) : FullHashLift :=
+  BitVec.equivFin (BitAdaptor.hashBytes
+    (Pipeline.fixedKeyPermutations oracle location window) label)
+
+theorem fixedDaviesMeyerHashLift_eq (location : Pipeline.FixedKeyLocation)
+    (window : Nat) (label : Block)
+    (oracle : PermutationOracle Pipeline.FixedKeyIndex Block) :
+    fixedDaviesMeyerHashLift location window label oracle =
+      fullHashLiftBlockEquiv.symm
+        (fun slot => oracle.permutation
+          (fixedKeyIndex location window (.hash slot)) label ^^^ label) := by
+  rfl
+
+/-- One fixed gate has an exact uniform 384-bit Davies--Meyer hash lift. -/
+theorem map_uniform_fixedDaviesMeyerHashLift
+    (location : Pipeline.FixedKeyLocation) (window : Nat) (label : Block) :
+    (PMF.uniformOfFintype
+      (PermutationOracle Pipeline.FixedKeyIndex Block)).map
+        (fixedDaviesMeyerHashLift location window label) =
+      PMF.uniformOfFintype FullHashLift := by
+  rw [show fixedDaviesMeyerHashLift location window label =
+      fullHashLiftBlockEquiv.symm ∘
+        (fun (oracle : PermutationOracle Pipeline.FixedKeyIndex Block) slot =>
+          oracle.permutation (fixedKeyIndex location window (.hash slot)) label ^^^ label) by
+        funext oracle
+        exact fixedDaviesMeyerHashLift_eq location window label oracle]
+  rw [← PMF.map_comp]
+  rw [map_uniform_fixedDaviesMeyerBlocks]
+  exact map_uniformOfFintype_equivBetween fullHashLiftBlockEquiv.symm
+
 /-- This equivalence separates complete field fibers from the rejected suffix. -/
 def hashLiftSplitEquiv : FullHashLift ≃ GoodHashLift ⊕ BadHashLift :=
   (finCongr hashLiftFiberCount.symm).trans finSumFinEquiv.symm
@@ -286,6 +486,17 @@ theorem map_uniform_hashLiftSplitEquiv :
     (PMF.uniformOfFintype FullHashLift).map hashLiftSplitEquiv =
       PMF.uniformOfFintype (GoodHashLift ⊕ BadHashLift) :=
   map_uniformOfFintype_equivBetween hashLiftSplitEquiv
+
+/-- One fixed gate has the exact good-or-bad hash-lift distribution. -/
+theorem map_uniform_fixedDaviesMeyerHashSplit
+    (location : Pipeline.FixedKeyLocation) (window : Nat) (label : Block) :
+    (PMF.uniformOfFintype
+      (PermutationOracle Pipeline.FixedKeyIndex Block)).map
+        (hashLiftSplitEquiv ∘ fixedDaviesMeyerHashLift location window label) =
+      PMF.uniformOfFintype (GoodHashLift ⊕ BadHashLift) := by
+  rw [← PMF.map_comp]
+  rw [map_uniform_fixedDaviesMeyerHashLift]
+  exact map_uniform_hashLiftSplitEquiv
 
 /-- This event selects the rejected suffix after the exact split. -/
 def hashLiftBadSet : Set (GoodHashLift ⊕ BadHashLift) :=
@@ -326,6 +537,18 @@ theorem uniform_hashLiftBadSet_mass :
   have totalCard : Fintype.card (GoodHashLift ⊕ BadHashLift) = 2 ^ 384 := by
     simpa using (Fintype.card_congr hashLiftSplitEquiv).symm
   rw [badCard, totalCard]
+
+/-- One real fixed-gate hash has the exact rejected-suffix mass. -/
+theorem fixedDaviesMeyerHashSplit_badMass
+    (location : Pipeline.FixedKeyLocation) (window : Nat) (label : Block) :
+    ((PMF.uniformOfFintype
+      (PermutationOracle Pipeline.FixedKeyIndex Block)).map
+        (hashLiftSplitEquiv ∘ fixedDaviesMeyerHashLift location window label)).toOuterMeasure
+          hashLiftBadSet =
+      ((2 ^ 384 % baseFieldModulus : Nat) : ENNReal) /
+        ((2 ^ 384 : Nat) : ENNReal) := by
+  rw [map_uniform_fixedDaviesMeyerHashSplit]
+  exact uniform_hashLiftBadSet_mass
 
 /-- The rejected mass is at most one field modulus over the hash domain. -/
 theorem uniform_hashLiftBadSet_mass_le :

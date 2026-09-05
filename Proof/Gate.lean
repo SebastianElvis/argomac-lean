@@ -199,6 +199,33 @@ theorem liftHashBlocks_value (lift : BitVec 384) :
       (x := lift) (start₂ := 128) (len₂ := 256)
       (start₁ := 0) (len₁ := 128) (by decide)
 
+/-- These blocks form one 384-bit hash value. -/
+def hashBlocksValue (blocks : Fin 3 → Block) : BitVec 384 :=
+  blocks 2 ++ blocks 1 ++ blocks 0
+
+theorem liftHashBlocks_hashBlocksValue (blocks : Fin 3 → Block) :
+    liftHashBlocks (hashBlocksValue blocks) = blocks := by
+  funext index
+  fin_cases index
+  · simp only [liftHashBlocks, hashBlocksValue]
+    rw [BitVec.extractLsb'_append_eq_of_add_le (by decide)]
+    simp
+  · simp only [liftHashBlocks, hashBlocksValue]
+    rw [BitVec.extractLsb'_append_eq_of_le (by decide)]
+    rw [BitVec.extractLsb'_append_eq_of_add_le (by decide)]
+    simp
+  · simp only [liftHashBlocks, hashBlocksValue]
+    rw [BitVec.extractLsb'_append_eq_of_le (by decide)]
+    rw [BitVec.extractLsb'_append_eq_of_le (by decide)]
+    simp
+
+/-- Three blocks and one 384-bit value contain the same bits. -/
+def hashLiftBlockEquiv : BitVec 384 ≃ (Fin 3 → Block) where
+  toFun := liftHashBlocks
+  invFun := hashBlocksValue
+  left_inv := liftHashBlocks_value
+  right_inv := liftHashBlocks_hashBlocksValue
+
 theorem targetPadBlocks_value (table : BitAdaptor.Table) (target : BaseField) :
     targetPadBlocks table target 1 ++ targetPadBlocks table target 0 =
       table.trueRow ^^^ BitAdaptor.fieldBytes target := by

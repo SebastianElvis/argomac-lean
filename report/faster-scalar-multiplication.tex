@@ -384,6 +384,13 @@ Lean applies a finite union bound to all selected gates.
 The aggregate suffix mass is at most $301752p/2^{384}$.
 This proof needs no independence assumption.
 Lean also converts this bound to the stated real-valued hash-lift rounding error.
+Lean now proves the required local marginal for one real gate.
+A three-step swap schedule extracts the outputs of the three distinct fixed-key permutations.
+The schedule preserves the uniform joint oracle tape exactly.
+Davies--Meyer feed-forward is a componentwise involution, and three blocks are equivalent to one 384-bit value.
+Thus, the construction's 384-bit gate hash is exactly uniform.
+Its rejected suffix has the exact local mass above.
+The next proof must lift this marginal from the fixed-key oracle to the complete garbling tape.
 
 The complete row repairs the known perfect-correctness failure.
 The generic bounded bridge is complete.
