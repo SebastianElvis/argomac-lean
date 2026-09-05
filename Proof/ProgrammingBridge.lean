@@ -52,11 +52,21 @@ def CurveGateRequest.retarget (request : CurveGateRequest)
     x7Targets := coordinateLowTarget residual
     y4Targets := coordinateLowTarget 0
     y6Targets := coordinateLowTarget 0
-    x3Lifts := fun index => canonicalHashLift ((coordinateLowTarget 0) index)
-    x5Lifts := fun index => canonicalHashLift ((coordinateLowTarget 0) index)
-    x7Lifts := fun index => canonicalHashLift ((coordinateLowTarget residual) index)
-    y4Lifts := fun index => canonicalHashLift ((coordinateLowTarget 0) index)
-    y6Lifts := fun index => canonicalHashLift ((coordinateLowTarget 0) index)
+    x3Quotients := request.x3Quotients
+    x5Quotients := request.x5Quotients
+    x7Quotients := request.x7Quotients
+    y4Quotients := request.y4Quotients
+    y6Quotients := request.y6Quotients
+    x3Lifts := fun index => goodHashLift ((coordinateLowTarget 0) index)
+      (request.x3Quotients index)
+    x5Lifts := fun index => goodHashLift ((coordinateLowTarget 0) index)
+      (request.x5Quotients index)
+    x7Lifts := fun index => goodHashLift ((coordinateLowTarget residual) index)
+      (request.x7Quotients index)
+    y4Lifts := fun index => goodHashLift ((coordinateLowTarget 0) index)
+      (request.y4Quotients index)
+    y6Lifts := fun index => goodHashLift ((coordinateLowTarget 0) index)
+      (request.y6Quotients index)
   }
 
 @[simp] theorem CurveGateRequest.retarget_table (request : CurveGateRequest)
@@ -90,10 +100,18 @@ def BiquadraticXRequest.retarget (request : BiquadraticXRequest)
     y8Targets := coordinateLowTarget 0
     y10Targets := coordinateLowTarget 0
     x9Targets := coordinateLowTarget residual
-    y6Lifts := fun index => canonicalHashLift ((coordinateLowTarget 0) index)
-    y8Lifts := fun index => canonicalHashLift ((coordinateLowTarget 0) index)
-    y10Lifts := fun index => canonicalHashLift ((coordinateLowTarget 0) index)
-    x9Lifts := fun index => canonicalHashLift ((coordinateLowTarget residual) index)
+    y6Quotients := request.y6Quotients
+    y8Quotients := request.y8Quotients
+    y10Quotients := request.y10Quotients
+    x9Quotients := request.x9Quotients
+    y6Lifts := fun index => goodHashLift ((coordinateLowTarget 0) index)
+      (request.y6Quotients index)
+    y8Lifts := fun index => goodHashLift ((coordinateLowTarget 0) index)
+      (request.y8Quotients index)
+    y10Lifts := fun index => goodHashLift ((coordinateLowTarget 0) index)
+      (request.y10Quotients index)
+    x9Lifts := fun index => goodHashLift ((coordinateLowTarget residual) index)
+      (request.x9Quotients index)
   }
 
 @[simp] theorem BiquadraticXRequest.retarget_table (request : BiquadraticXRequest)
@@ -126,10 +144,18 @@ def BiquadraticYRequest.retarget (request : BiquadraticYRequest)
     y10Targets := coordinateLowTarget 0
     x7Targets := coordinateLowTarget 0
     x9Targets := coordinateLowTarget residual
-    y8Lifts := fun index => canonicalHashLift ((coordinateLowTarget 0) index)
-    y10Lifts := fun index => canonicalHashLift ((coordinateLowTarget 0) index)
-    x7Lifts := fun index => canonicalHashLift ((coordinateLowTarget 0) index)
-    x9Lifts := fun index => canonicalHashLift ((coordinateLowTarget residual) index)
+    y8Quotients := request.y8Quotients
+    y10Quotients := request.y10Quotients
+    x7Quotients := request.x7Quotients
+    x9Quotients := request.x9Quotients
+    y8Lifts := fun index => goodHashLift ((coordinateLowTarget 0) index)
+      (request.y8Quotients index)
+    y10Lifts := fun index => goodHashLift ((coordinateLowTarget 0) index)
+      (request.y10Quotients index)
+    x7Lifts := fun index => goodHashLift ((coordinateLowTarget 0) index)
+      (request.x7Quotients index)
+    x9Lifts := fun index => goodHashLift ((coordinateLowTarget residual) index)
+      (request.x9Quotients index)
   }
 
 @[simp] theorem BiquadraticYRequest.retarget_table (request : BiquadraticYRequest)
@@ -165,11 +191,21 @@ def BiquadraticZRequest.retarget (request : BiquadraticZRequest)
     y10Targets := coordinateLowTarget 0
     x7Targets := coordinateLowTarget 0
     x9Targets := coordinateLowTarget residual
-    y6Lifts := fun index => canonicalHashLift ((coordinateLowTarget 0) index)
-    y8Lifts := fun index => canonicalHashLift ((coordinateLowTarget 0) index)
-    y10Lifts := fun index => canonicalHashLift ((coordinateLowTarget 0) index)
-    x7Lifts := fun index => canonicalHashLift ((coordinateLowTarget 0) index)
-    x9Lifts := fun index => canonicalHashLift ((coordinateLowTarget residual) index)
+    y6Quotients := request.y6Quotients
+    y8Quotients := request.y8Quotients
+    y10Quotients := request.y10Quotients
+    x7Quotients := request.x7Quotients
+    x9Quotients := request.x9Quotients
+    y6Lifts := fun index => goodHashLift ((coordinateLowTarget 0) index)
+      (request.y6Quotients index)
+    y8Lifts := fun index => goodHashLift ((coordinateLowTarget 0) index)
+      (request.y8Quotients index)
+    y10Lifts := fun index => goodHashLift ((coordinateLowTarget 0) index)
+      (request.y10Quotients index)
+    x7Lifts := fun index => goodHashLift ((coordinateLowTarget 0) index)
+      (request.x7Quotients index)
+    x9Lifts := fun index => goodHashLift ((coordinateLowTarget residual) index)
+      (request.x9Quotients index)
   }
 
 @[simp] theorem BiquadraticZRequest.retarget_table (request : BiquadraticZRequest)

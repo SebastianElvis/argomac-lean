@@ -75,6 +75,93 @@ def HashLiftRepresents (lift : BitVec 384) (target : BaseField) : Prop :=
 /-- This type contains one valid lift for one field target. -/
 abbrev HashLift (target : BaseField) := { lift : BitVec 384 // HashLiftRepresents lift target }
 
+/-- This is the number of complete base-field fibers in 384 bits. -/
+def hashLiftQuotientCount : Nat :=
+  2 ^ 384 / baseFieldModulus
+
+/-- This type selects one complete lift fiber. -/
+abbrev HashLiftQuotient := Fin hashLiftQuotientCount
+
+/-- This type contains every value in the complete lift fibers. -/
+abbrev GoodHashLift := Fin (hashLiftQuotientCount * baseFieldModulus)
+
+set_option exponentiation.threshold 400 in
+instance hashLiftQuotientNonempty : Nonempty HashLiftQuotient :=
+  ⟨⟨0, by decide⟩⟩
+
+set_option exponentiation.threshold 400 in
+def defaultHashLiftQuotient : HashLiftQuotient :=
+  ⟨0, by decide⟩
+
+set_option exponentiation.threshold 400 in
+instance goodHashLiftNonempty : Nonempty GoodHashLift :=
+  ⟨⟨0, by decide⟩⟩
+
+/-- This equivalence makes the field residue explicit. -/
+def baseFieldFinEquiv : Fin baseFieldModulus ≃ BaseField where
+  toFun value := value.val
+  invFun value := ⟨value.val, value.val_lt⟩
+  left_inv value := by
+    apply Fin.ext
+    simp only [ZMod.val_natCast]
+    rw [Nat.mod_eq_of_lt value.isLt]
+  right_inv value := ZMod.natCast_zmod_val value
+
+/-- A good value is one field residue and one independent quotient. -/
+def goodHashLiftEquiv : GoodHashLift ≃ BaseField × HashLiftQuotient :=
+  finProdFinEquiv.symm |>.trans (Equiv.prodComm _ _) |>.trans
+    (Equiv.prodCongr baseFieldFinEquiv (Equiv.refl _))
+
+/-- The good-value equivalence reads the actual residue modulo the field. -/
+theorem goodHashLiftEquiv_fst (lift : GoodHashLift) :
+    (goodHashLiftEquiv lift).1 = (lift.val : BaseField) := by
+  simp [goodHashLiftEquiv, baseFieldFinEquiv]
+
+theorem goodHashLiftValue_lt_goodCount
+    (target : BaseField) (quotient : HashLiftQuotient) :
+    target.val + baseFieldModulus * quotient.val <
+      hashLiftQuotientCount * baseFieldModulus := by
+  calc
+    target.val + baseFieldModulus * quotient.val <
+        baseFieldModulus + baseFieldModulus * quotient.val :=
+      Nat.add_lt_add_right target.val_lt _
+    _ = baseFieldModulus * (quotient.val + 1) := by
+      rw [Nat.mul_add, Nat.mul_one]
+      ac_rfl
+    _ ≤ baseFieldModulus * hashLiftQuotientCount :=
+      Nat.mul_le_mul_left _ (Nat.succ_le_of_lt quotient.isLt)
+    _ = hashLiftQuotientCount * baseFieldModulus := Nat.mul_comm _ _
+
+set_option exponentiation.threshold 400 in
+/-- This lift uses one target residue and one complete-fiber quotient. -/
+def goodHashLift (target : BaseField) (quotient : HashLiftQuotient) :
+    HashLift target := by
+  let value := target.val + baseFieldModulus * quotient.val
+  have valueLt : value < 2 ^ 384 := by
+    exact lt_of_lt_of_le (goodHashLiftValue_lt_goodCount target quotient) (by
+      simpa [hashLiftQuotientCount] using
+        Nat.mul_div_le (2 ^ 384) baseFieldModulus)
+  refine ⟨BitVec.ofNat 384 value, ?_⟩
+  simp only [HashLiftRepresents, BitVec.toNat_ofNat]
+  rw [Nat.mod_eq_of_lt valueLt]
+  simp only [value]
+  push_cast
+  rw [ZMod.natCast_zmod_val]
+  simp
+
+set_option exponentiation.threshold 400 in
+/-- The constructed lift is the inverse image of its residue and quotient. -/
+theorem goodHashLift_toNat (target : BaseField) (quotient : HashLiftQuotient) :
+    (goodHashLift target quotient).1.toNat =
+      (goodHashLiftEquiv.symm (target, quotient)).val := by
+  change (BitVec.ofNat 384
+    (target.val + baseFieldModulus * quotient.val)).toNat = _
+  rw [BitVec.toNat_ofNat, Nat.mod_eq_of_lt (lt_of_lt_of_le
+    (goodHashLiftValue_lt_goodCount target quotient) (by
+      simpa [hashLiftQuotientCount] using
+        Nat.mul_div_le (2 ^ 384) baseFieldModulus))]
+  simp [goodHashLiftEquiv, baseFieldFinEquiv]
+
 set_option exponentiation.threshold 400 in
 def canonicalHashLift (target : BaseField) : HashLift target :=
   ⟨BitVec.ofNat 384 target.val, by
@@ -85,19 +172,6 @@ def canonicalHashLift (target : BaseField) : HashLift target :=
 
 instance hashLiftNonempty (target : BaseField) : Nonempty (HashLift target) :=
   ⟨canonicalHashLift target⟩
-
-noncomputable instance hashLiftBitsFintype : Fintype (BitVec 384) :=
-  Fintype.ofEquiv (Fin (2 ^ 384)) BitVec.equivFin.symm.toEquiv
-
-noncomputable instance hashLiftFintype (target : BaseField) : Fintype (HashLift target) :=
-  by
-    classical
-    exact Fintype.subtype
-      (Finset.univ.filter fun lift => HashLiftRepresents lift target) (by simp)
-
-/-- This tape samples a uniform valid lift for one field target. -/
-noncomputable def hashLiftTape (target : BaseField) : PMF (HashLift target) :=
-  PMF.uniformOfFintype (HashLift target)
 
 /-- These blocks store one random lift in little-endian order. -/
 def liftHashBlocks (lift : BitVec 384) (index : Fin 3) : Block :=
@@ -760,6 +834,10 @@ structure BiquadraticXRequest where
   y8Targets : Fin coordinateBitCount → BaseField
   y10Targets : Fin coordinateBitCount → BaseField
   x9Targets : Fin coordinateBitCount → BaseField
+  y6Quotients : Fin coordinateBitCount → HashLiftQuotient
+  y8Quotients : Fin coordinateBitCount → HashLiftQuotient
+  y10Quotients : Fin coordinateBitCount → HashLiftQuotient
+  x9Quotients : Fin coordinateBitCount → HashLiftQuotient
   y6Lifts : ∀ index, HashLift (y6Targets index)
   y8Lifts : ∀ index, HashLift (y8Targets index)
   y10Lifts : ∀ index, HashLift (y10Targets index)
@@ -808,6 +886,10 @@ structure BiquadraticYRequest where
   y10Targets : Fin coordinateBitCount → BaseField
   x7Targets : Fin coordinateBitCount → BaseField
   x9Targets : Fin coordinateBitCount → BaseField
+  y8Quotients : Fin coordinateBitCount → HashLiftQuotient
+  y10Quotients : Fin coordinateBitCount → HashLiftQuotient
+  x7Quotients : Fin coordinateBitCount → HashLiftQuotient
+  x9Quotients : Fin coordinateBitCount → HashLiftQuotient
   y8Lifts : ∀ index, HashLift (y8Targets index)
   y10Lifts : ∀ index, HashLift (y10Targets index)
   x7Lifts : ∀ index, HashLift (x7Targets index)
@@ -858,6 +940,11 @@ structure BiquadraticZRequest where
   y10Targets : Fin coordinateBitCount → BaseField
   x7Targets : Fin coordinateBitCount → BaseField
   x9Targets : Fin coordinateBitCount → BaseField
+  y6Quotients : Fin coordinateBitCount → HashLiftQuotient
+  y8Quotients : Fin coordinateBitCount → HashLiftQuotient
+  y10Quotients : Fin coordinateBitCount → HashLiftQuotient
+  x7Quotients : Fin coordinateBitCount → HashLiftQuotient
+  x9Quotients : Fin coordinateBitCount → HashLiftQuotient
   y6Lifts : ∀ index, HashLift (y6Targets index)
   y8Lifts : ∀ index, HashLift (y8Targets index)
   y10Lifts : ∀ index, HashLift (y10Targets index)
@@ -962,6 +1049,11 @@ structure CurveGateRequest where
   x7Targets : Fin coordinateBitCount → BaseField
   y4Targets : Fin coordinateBitCount → BaseField
   y6Targets : Fin coordinateBitCount → BaseField
+  x3Quotients : Fin coordinateBitCount → HashLiftQuotient
+  x5Quotients : Fin coordinateBitCount → HashLiftQuotient
+  x7Quotients : Fin coordinateBitCount → HashLiftQuotient
+  y4Quotients : Fin coordinateBitCount → HashLiftQuotient
+  y6Quotients : Fin coordinateBitCount → HashLiftQuotient
   x3Lifts : ∀ index, HashLift (x3Targets index)
   x5Lifts : ∀ index, HashLift (x5Targets index)
   x7Lifts : ∀ index, HashLift (x7Targets index)
