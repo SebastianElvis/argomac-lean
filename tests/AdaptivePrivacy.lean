@@ -96,6 +96,16 @@ theorem hashLiftRoundingArithmeticHas100Bits :
 #print axioms ArgoMAC.Security.SimulatorInvariant.transcriptsConsistent
 #print axioms ArgoMAC.Security.idealOracleHandler_preservesInvariant
 #print axioms ArgoMAC.Security.oracleProgram_run_stateEquiv
+#print axioms ArgoMAC.Security.oracleProgram_run_result_of_related
+#print axioms ArgoMAC.Security.runOracleProgramWithTrace_replay_of_related
+#print axioms ArgoMAC.Security.replayQueryTrace_append
+#print axioms ArgoMAC.Security.replayQueryTrace_length
+#print axioms ArgoMAC.Security.replayQueryTrace_queries
+#print axioms ArgoMAC.Security.initialState_realIdealOracleRelated
+#print axioms ArgoMAC.Security.realIdealOracleHandlers_related
+#print axioms ArgoMAC.Security.oracleProgram_real_ideal_result
+#print axioms ArgoMAC.Security.oracleProgram_real_initial_result
+#print axioms ArgoMAC.Security.runOracleProgramWithTrace_real_initial_replay
 #print axioms ArgoMAC.Security.programPermutation_apply
 #print axioms ArgoMAC.Security.programPermutation_symm
 #print axioms ArgoMAC.Security.programPermutation_preserves

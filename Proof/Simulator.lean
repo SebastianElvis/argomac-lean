@@ -537,6 +537,132 @@ theorem oracleProgram_run_stateEquiv
       funext sample
       exact inductionHypothesis sample state
 
+/-- Related handlers give the same program result distribution. -/
+theorem oracleProgram_run_result_of_related
+    {oracle : OracleSpec.{uQuery, uAnswer}} {Result : Type uResult}
+    {StateOne : Type uStateOne} {StateTwo : Type uStateTwo}
+    (handlerOne : OracleHandler oracle StateOne)
+    (handlerTwo : OracleHandler oracle StateTwo)
+    (related : StateOne → StateTwo → Prop)
+    (handlerRelated : ∀ query stateOne stateTwo, related stateOne stateTwo →
+      (handlerOne query stateOne).1 = (handlerTwo query stateTwo).1 ∧
+        related (handlerOne query stateOne).2 (handlerTwo query stateTwo).2)
+    {budget : Nat} (program : OracleProgram oracle Result budget)
+    (stateOne : StateOne) (stateTwo : StateTwo)
+    (statesRelated : related stateOne stateTwo) :
+    (program.run handlerOne stateOne).map Prod.fst =
+      (program.run handlerTwo stateTwo).map Prod.fst := by
+  induction program generalizing stateOne stateTwo with
+  | pure result =>
+      simp only [OracleProgram.run, PMF.map_comp]
+      congr 1
+  | query request next inductionHypothesis =>
+      simp only [OracleProgram.run]
+      have nextRelated := handlerRelated request stateOne stateTwo statesRelated
+      rw [nextRelated.1]
+      exact inductionHypothesis _ _ _ nextRelated.2
+  | sample distribution next inductionHypothesis =>
+      simp only [OracleProgram.run, PMF.map_bind]
+      congr 1
+      funext sample
+      exact inductionHypothesis sample stateOne stateTwo statesRelated
+
+/-- Replay one query list and record the state before each query. -/
+def replayQueryTrace
+    {oracle : OracleSpec.{uQuery, uAnswer}} {StateOne : Type uStateOne}
+    {StateTwo : Type uStateTwo} (handler : OracleHandler oracle StateTwo) :
+    StateTwo → List (oracle.Query × StateOne) →
+      StateTwo × List (oracle.Query × StateTwo)
+  | state, [] => (state, [])
+  | state, (query, _) :: remaining =>
+      let tail := replayQueryTrace handler (handler query state).2 remaining
+      (tail.1, (query, state) :: tail.2)
+
+/-- Replay a traced output from a second initial state. -/
+def replayTracedOutput
+    {oracle : OracleSpec.{uQuery, uAnswer}} {Result : Type uResult}
+    {StateOne : Type uStateOne} {StateTwo : Type uStateTwo}
+    (handler : OracleHandler oracle StateTwo) (state : StateTwo) :
+    Result × StateOne × List (oracle.Query × StateOne) →
+      Result × StateTwo × List (oracle.Query × StateTwo) :=
+  fun output =>
+    let replayed := replayQueryTrace handler state output.2.2
+    (output.1, replayed.1, replayed.2)
+
+/-- Replay composes over two consecutive query traces. -/
+theorem replayQueryTrace_append
+    {oracle : OracleSpec.{uQuery, uAnswer}} {StateOne : Type uStateOne}
+    {StateTwo : Type uStateTwo} (handler : OracleHandler oracle StateTwo)
+    (state : StateTwo) (first second : List (oracle.Query × StateOne)) :
+    replayQueryTrace handler state (first ++ second) =
+      let firstReplay := replayQueryTrace handler state first
+      let secondReplay := replayQueryTrace handler firstReplay.1 second
+      (secondReplay.1, firstReplay.2 ++ secondReplay.2) := by
+  induction first generalizing state with
+  | nil => rfl
+  | cons current remaining inductionHypothesis =>
+      simp only [List.cons_append, replayQueryTrace]
+      rw [inductionHypothesis]
+
+/-- Replay preserves the number of reached queries. -/
+theorem replayQueryTrace_length
+    {oracle : OracleSpec.{uQuery, uAnswer}} {StateOne : Type uStateOne}
+    {StateTwo : Type uStateTwo} (handler : OracleHandler oracle StateTwo)
+    (state : StateTwo) (trace : List (oracle.Query × StateOne)) :
+    (replayQueryTrace handler state trace).2.length = trace.length := by
+  induction trace generalizing state with
+  | nil => rfl
+  | cons current remaining inductionHypothesis =>
+      simp only [replayQueryTrace, List.length_cons]
+      rw [inductionHypothesis]
+
+/-- Replay preserves the ordered public query list. -/
+theorem replayQueryTrace_queries
+    {oracle : OracleSpec.{uQuery, uAnswer}} {StateOne : Type uStateOne}
+    {StateTwo : Type uStateTwo} (handler : OracleHandler oracle StateTwo)
+    (state : StateTwo) (trace : List (oracle.Query × StateOne)) :
+    (replayQueryTrace handler state trace).2.map Prod.fst = trace.map Prod.fst := by
+  induction trace generalizing state with
+  | nil => rfl
+  | cons current remaining inductionHypothesis =>
+      simp only [replayQueryTrace, List.map_cons, List.cons.injEq, true_and]
+      exact inductionHypothesis _
+
+/-- Trace replay transports a related handler run exactly. -/
+theorem runOracleProgramWithTrace_replay_of_related
+    {oracle : OracleSpec.{uQuery, uAnswer}} {Result : Type uResult}
+    {StateOne : Type uStateOne} {StateTwo : Type uStateTwo}
+    (handlerOne : OracleHandler oracle StateOne)
+    (handlerTwo : OracleHandler oracle StateTwo)
+    (related : StateOne → StateTwo → Prop)
+    (handlerRelated : ∀ query stateOne stateTwo, related stateOne stateTwo →
+      (handlerOne query stateOne).1 = (handlerTwo query stateTwo).1 ∧
+        related (handlerOne query stateOne).2 (handlerTwo query stateTwo).2)
+    {budget : Nat} (program : OracleProgram oracle Result budget)
+    (stateOne : StateOne) (stateTwo : StateTwo)
+    (statesRelated : related stateOne stateTwo) :
+    (runOracleProgramWithTrace handlerOne program stateOne).map
+        (replayTracedOutput handlerTwo stateTwo) =
+      runOracleProgramWithTrace handlerTwo program stateTwo := by
+  induction program generalizing stateOne stateTwo with
+  | pure result =>
+      simp [runOracleProgramWithTrace, replayTracedOutput, replayQueryTrace,
+        PMF.map_comp, Function.comp_def]
+  | query request next inductionHypothesis =>
+      simp only [runOracleProgramWithTrace]
+      have nextRelated := handlerRelated request stateOne stateTwo statesRelated
+      rw [nextRelated.1]
+      rw [← inductionHypothesis _ (handlerOne request stateOne).2
+        (handlerTwo request stateTwo).2 nextRelated.2]
+      rw [PMF.map_comp]
+      rw [PMF.map_comp]
+      congr 1
+  | sample distribution next inductionHypothesis =>
+      simp only [runOracleProgramWithTrace, PMF.map_bind]
+      congr 1
+      funext sample
+      exact inductionHypothesis sample stateOne stateTwo statesRelated
+
 /-- This value identifies one layer in the composed circuit. -/
 inductive Layer
   | input
@@ -1614,5 +1740,71 @@ theorem idealOracleHandler_preservesInvariant (query : Garbling.oracleSpec.Query
     (state : SimulatorState) (invariant : SimulatorInvariant state) :
     SimulatorInvariant (idealOracleHandler query state).2 :=
   oracleHandlerFor_preservesInvariant .adversary query state invariant
+
+/-- This relation keeps the three public oracle functions equal. -/
+def RealIdealOracleRelated (randomness : Garbling.Randomness)
+    (state : SimulatorState) : Prop :=
+  randomness.fixedKeyOracle = state.fixedOracle ∧
+    randomness.encPRFOracle = state.encOracle ∧
+    randomness.hashOracle = state.hashOracle
+
+theorem initialState_realIdealOracleRelated (randomness : Garbling.Randomness) :
+    RealIdealOracleRelated randomness (initialState randomness) := by
+  simp [RealIdealOracleRelated, initialState]
+
+/-- Real and recording handlers keep equal public oracle answers. -/
+theorem realIdealOracleHandlers_related
+    (query : Garbling.oracleSpec.Query) (randomness : Garbling.Randomness)
+    (state : SimulatorState) (related : RealIdealOracleRelated randomness state) :
+    (Garbling.oracleHandler query randomness).1 =
+        (idealOracleHandler query state).1 ∧
+      RealIdealOracleRelated (Garbling.oracleHandler query randomness).2
+        (idealOracleHandler query state).2 := by
+  rcases related with ⟨fixed, enc, hash⟩
+  cases query <;>
+    simp only [Garbling.oracleHandler, idealOracleHandler, oracleHandlerFor]
+  · exact ⟨by rw [fixed],
+      by simp [RealIdealOracleRelated, recordFixed, fixed, enc, hash]⟩
+  · exact ⟨by rw [fixed],
+      by simp [RealIdealOracleRelated, recordFixed, fixed, enc, hash]⟩
+  · exact ⟨by rw [enc],
+      by simp [RealIdealOracleRelated, recordEnc, fixed, enc, hash]⟩
+  · exact ⟨by rw [enc],
+      by simp [RealIdealOracleRelated, recordEnc, fixed, enc, hash]⟩
+  · exact ⟨congrFun hash _,
+      by simp [RealIdealOracleRelated, recordHash, fixed, enc, hash]⟩
+
+/-- Recording queries does not change an adversary's result distribution. -/
+theorem oracleProgram_real_ideal_result
+    {Result : Type uResult} {budget : Nat}
+    (program : OracleProgram Garbling.oracleSpec Result budget)
+    (randomness : Garbling.Randomness) (state : SimulatorState)
+    (related : RealIdealOracleRelated randomness state) :
+    (program.run Garbling.oracleHandler randomness).map Prod.fst =
+      (program.run idealOracleHandler state).map Prod.fst :=
+  oracleProgram_run_result_of_related Garbling.oracleHandler idealOracleHandler
+    RealIdealOracleRelated realIdealOracleHandlers_related program randomness state related
+
+theorem oracleProgram_real_initial_result
+    {Result : Type uResult} {budget : Nat}
+    (program : OracleProgram Garbling.oracleSpec Result budget)
+    (randomness : Garbling.Randomness) :
+    (program.run Garbling.oracleHandler randomness).map Prod.fst =
+      (program.run idealOracleHandler (initialState randomness)).map Prod.fst :=
+  oracleProgram_real_ideal_result program randomness (initialState randomness)
+    (initialState_realIdealOracleRelated randomness)
+
+/-- The recording handler exactly replays every real query trace. -/
+theorem runOracleProgramWithTrace_real_initial_replay
+    {Result : Type uResult} {budget : Nat}
+    (program : OracleProgram Garbling.oracleSpec Result budget)
+    (randomness : Garbling.Randomness) :
+    (runOracleProgramWithTrace Garbling.oracleHandler program randomness).map
+        (replayTracedOutput idealOracleHandler (initialState randomness)) =
+      runOracleProgramWithTrace idealOracleHandler program (initialState randomness) :=
+  runOracleProgramWithTrace_replay_of_related Garbling.oracleHandler
+    idealOracleHandler RealIdealOracleRelated realIdealOracleHandlers_related
+    program randomness (initialState randomness)
+    (initialState_realIdealOracleRelated randomness)
 
 end Kriterion.ArgoMAC.Security
