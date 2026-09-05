@@ -278,6 +278,75 @@ theorem hashLiftFiberCount :
         2 ^ 384 % baseFieldModulus = 2 ^ 384 := by
   exact Nat.div_add_mod (2 ^ 384) baseFieldModulus
 
+/-- This type contains the rejected 384-bit suffix. -/
+abbrev BadHashLift := Fin (2 ^ 384 % baseFieldModulus)
+
+/-- This type contains each 384-bit integer. -/
+abbrev FullHashLift := Fin (2 ^ 384)
+
+set_option exponentiation.threshold 400 in
+instance fullHashLiftNonempty : Nonempty FullHashLift :=
+  ⟨⟨0, by decide⟩⟩
+
+/-- This equivalence separates complete field fibers from the rejected suffix. -/
+def hashLiftSplitEquiv : FullHashLift ≃ GoodHashLift ⊕ BadHashLift :=
+  (finCongr hashLiftFiberCount.symm).trans finSumFinEquiv.symm
+
+/-- Uniform 384-bit integers split exactly into the good and bad parts. -/
+theorem map_uniform_hashLiftSplitEquiv :
+    (PMF.uniformOfFintype FullHashLift).map hashLiftSplitEquiv =
+      PMF.uniformOfFintype (GoodHashLift ⊕ BadHashLift) :=
+  map_uniformOfFintype_equivBetween hashLiftSplitEquiv
+
+/-- This event selects the rejected suffix after the exact split. -/
+def hashLiftBadSet : Set (GoodHashLift ⊕ BadHashLift) :=
+  fun sample => match sample with
+    | .inl _ => False
+    | .inr _ => True
+
+/-- The rejected suffix is equivalent to the bad-event subtype. -/
+def badHashLiftEquiv : BadHashLift ≃ hashLiftBadSet where
+  toFun value := ⟨.inr value, trivial⟩
+  invFun value := by
+    rcases value with ⟨sample, bad⟩
+    cases sample with
+    | inl _ => exact False.elim bad
+    | inr rejected => exact rejected
+  left_inv _ := rfl
+  right_inv value := by
+    rcases value with ⟨sample, bad⟩
+    cases sample with
+    | inl _ => exact False.elim bad
+    | inr _ => rfl
+
+noncomputable instance hashLiftBadSetFintype : Fintype hashLiftBadSet :=
+  Fintype.ofEquiv BadHashLift badHashLiftEquiv
+
+set_option exponentiation.threshold 400 in
+set_option maxRecDepth 100000 in
+/-- The exact bad mass is the rejected suffix divided by the hash domain. -/
+theorem uniform_hashLiftBadSet_mass :
+    (PMF.uniformOfFintype (GoodHashLift ⊕ BadHashLift)).toOuterMeasure
+        hashLiftBadSet =
+      ((2 ^ 384 % baseFieldModulus : Nat) : ENNReal) /
+        ((2 ^ 384 : Nat) : ENNReal) := by
+  rw [PMF.toOuterMeasure_uniformOfFintype_apply]
+  have badCard : Fintype.card hashLiftBadSet =
+      2 ^ 384 % baseFieldModulus := by
+    simpa using (Fintype.card_congr badHashLiftEquiv).symm
+  have totalCard : Fintype.card (GoodHashLift ⊕ BadHashLift) = 2 ^ 384 := by
+    simpa using (Fintype.card_congr hashLiftSplitEquiv).symm
+  rw [badCard, totalCard]
+
+/-- The rejected mass is at most one field modulus over the hash domain. -/
+theorem uniform_hashLiftBadSet_mass_le :
+    (PMF.uniformOfFintype (GoodHashLift ⊕ BadHashLift)).toOuterMeasure
+        hashLiftBadSet ≤
+      (baseFieldModulus : ENNReal) / ((2 ^ 384 : Nat) : ENNReal) := by
+  rw [uniform_hashLiftBadSet_mass]
+  apply ENNReal.div_le_div_right
+  exact_mod_cast hashLiftRemainder_lt_baseFieldModulus.le
+
 end
 
 end Kriterion.ArgoMAC.Security
