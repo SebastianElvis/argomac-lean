@@ -41,6 +41,9 @@ theorem hashLiftRoundingArithmeticHas100Bits :
 #print axioms ArgoMAC.Security.selectedBranchBucketSquareBound
 #print axioms ArgoMAC.Security.selectedBranchBucketLinearBound
 #print axioms hashLiftRoundingArithmeticHas100Bits
+#print axioms ArgoMAC.Security.vectorFunctionEquiv
+#print axioms ArgoMAC.Security.Garbling.Randomness.data_injective
+#print axioms ArgoMAC.Security.randomTape_fullSupport
 #print axioms ArgoMAC.Security.blockCard
 #print axioms ArgoMAC.Security.uniformBlockMass
 #print axioms ArgoMAC.Security.uniformBlockTwoPointUnionBound
