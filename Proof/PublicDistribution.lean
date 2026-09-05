@@ -401,6 +401,12 @@ theorem curveGarble_coefficients
   rw [curveY6Offset_eq_public, curveX7Offset_eq_public]
   rfl
 
+/-- This is the public zero-pad form for one RCB coordinate. -/
+def biquadraticZeroPad (oracles : Biquadratic.Oracles)
+    (inputKey : InputMacKey) : BaseField :=
+  digitPublicOffset oracles.y10 inputKey.y +
+    digitPublicOffset oracles.x9 inputKey.x
+
 /-- These values are the five independent masks for an RCB X table. -/
 structure XCoefficientCoin where
   zeroPad : BaseField
@@ -475,6 +481,270 @@ theorem map_uniform_xCoefficientTransport (c0 c1 c2 c3 c5 : BaseField) :
       PMF.uniformOfFintype XCoefficients :=
   map_uniformOfFintype_equivBetween
     (xCoefficientEquiv c0 c1 c2 c3 c5)
+
+/-- This projection reads the five public X coefficients. -/
+def XCoefficients.ofTable (table : Biquadratic.Table) : XCoefficients := {
+  c0 := table.c0.getD 0
+  c1 := table.c1.getD 0
+  c2 := table.c2.getD 0
+  c3 := table.c3.getD 0
+  c5 := table.c5.getD 0
+}
+
+/-- Real X garbling uses the public zero-pad affine transport. -/
+theorem biquadraticGarbleX_coefficients
+    (c0 c1 c2 c3 c5 : BaseField) (randomness : Biquadratic.XRandomness)
+    (oracles : Biquadratic.Oracles) (inputKey : InputMacKey) :
+    XCoefficients.ofTable
+        (Biquadratic.garbleX c0 c1 c2 c3 c5 randomness oracles inputKey) =
+      xCoefficientTransport c0 c1 c2 c3 c5 {
+        zeroPad := biquadraticZeroPad oracles inputKey
+        r1 := randomness.r1
+        r2 := randomness.r2
+        r3 := randomness.r3
+        r5 := randomness.r5
+      } := by
+  let y6 := DigitAdaptor.garble oracles.y6 (-randomness.r3) inputKey.y
+  let r6 := DigitAdaptor.bitsK y6.2
+  let y8 := DigitAdaptor.garble oracles.y8 (-randomness.r5) inputKey.y
+  let r8 := DigitAdaptor.bitsK y8.2
+  let y10 := DigitAdaptor.garble oracles.y10 (-(randomness.r2 + r8)) inputKey.y
+  let r10 := DigitAdaptor.bitsK y10.2
+  let x9 := DigitAdaptor.garble oracles.x9 (-(randomness.r1 + r6)) inputKey.x
+  let r9 := DigitAdaptor.bitsK x9.2
+  have r10Public : r10 = digitPublicOffset oracles.y10 inputKey.y :=
+    digitBitsK_independentOfSlope _ _ _ _
+  have r9Public : r9 = digitPublicOffset oracles.x9 inputKey.x :=
+    digitBitsK_independentOfSlope _ _ _ _
+  change XCoefficients.mk (c0 - r10 - r9) (c1 + randomness.r1)
+    (c2 + randomness.r2) (c3 + randomness.r3) (c5 + randomness.r5) = _
+  rw [r10Public, r9Public]
+  simp only [xCoefficientTransport, biquadraticZeroPad]
+  rw [sub_sub]
+
+/-- These values are the four independent masks for an RCB Y table. -/
+structure YCoefficientCoin where
+  zeroPad : BaseField
+  r1 : BaseField
+  r4 : BaseField
+  r5 : BaseField
+deriving Fintype, Inhabited
+
+/-- These values are the four public coefficients of an RCB Y table. -/
+structure YCoefficients where
+  c0 : BaseField
+  c1 : BaseField
+  c4 : BaseField
+  c5 : BaseField
+deriving Fintype, Inhabited
+
+/-- This is the affine map from Y-table masks to public coefficients. -/
+def yCoefficientTransport (c0 c1 c4 c5 : BaseField) :
+    YCoefficientCoin → YCoefficients :=
+  fun coin => {
+    c0 := c0 - coin.zeroPad
+    c1 := c1 + coin.r1
+    c4 := c4 + coin.r4
+    c5 := c5 + coin.r5
+  }
+
+/-- This map recovers all Y-table masks from the public coefficients. -/
+def yCoefficientTransportInverse (c0 c1 c4 c5 : BaseField) :
+    YCoefficients → YCoefficientCoin :=
+  fun coefficients => {
+    zeroPad := c0 - coefficients.c0
+    r1 := coefficients.c1 - c1
+    r4 := coefficients.c4 - c4
+    r5 := coefficients.c5 - c5
+  }
+
+theorem yCoefficientTransport_leftInverse (c0 c1 c4 c5 : BaseField) :
+    Function.LeftInverse
+      (yCoefficientTransportInverse c0 c1 c4 c5)
+      (yCoefficientTransport c0 c1 c4 c5) := by
+  intro coin
+  cases coin
+  simp only [yCoefficientTransport, yCoefficientTransportInverse]
+  congr <;> ring
+
+theorem yCoefficientTransport_rightInverse (c0 c1 c4 c5 : BaseField) :
+    Function.RightInverse
+      (yCoefficientTransportInverse c0 c1 c4 c5)
+      (yCoefficientTransport c0 c1 c4 c5) := by
+  intro coefficients
+  cases coefficients
+  simp only [yCoefficientTransport, yCoefficientTransportInverse]
+  congr <;> ring
+
+/-- The Y-table coefficient transform is a finite equivalence. -/
+def yCoefficientEquiv (c0 c1 c4 c5 : BaseField) :
+    YCoefficientCoin ≃ YCoefficients := {
+  toFun := yCoefficientTransport c0 c1 c4 c5
+  invFun := yCoefficientTransportInverse c0 c1 c4 c5
+  left_inv := yCoefficientTransport_leftInverse c0 c1 c4 c5
+  right_inv := yCoefficientTransport_rightInverse c0 c1 c4 c5
+}
+
+/-- Public Y-table coefficients are uniform for each fixed private row. -/
+theorem map_uniform_yCoefficientTransport (c0 c1 c4 c5 : BaseField) :
+    (PMF.uniformOfFintype YCoefficientCoin).map
+        (yCoefficientTransport c0 c1 c4 c5) =
+      PMF.uniformOfFintype YCoefficients :=
+  map_uniformOfFintype_equivBetween (yCoefficientEquiv c0 c1 c4 c5)
+
+/-- This projection reads the four public Y coefficients. -/
+def YCoefficients.ofTable (table : Biquadratic.Table) : YCoefficients := {
+  c0 := table.c0.getD 0
+  c1 := table.c1.getD 0
+  c4 := table.c4.getD 0
+  c5 := table.c5.getD 0
+}
+
+/-- Real Y garbling uses the public zero-pad affine transport. -/
+theorem biquadraticGarbleY_coefficients
+    (c0 c1 c4 c5 : BaseField) (randomness : Biquadratic.YRandomness)
+    (oracles : Biquadratic.Oracles) (inputKey : InputMacKey) :
+    YCoefficients.ofTable
+        (Biquadratic.garbleY c0 c1 c4 c5 randomness oracles inputKey) =
+      yCoefficientTransport c0 c1 c4 c5 {
+        zeroPad := biquadraticZeroPad oracles inputKey
+        r1 := randomness.r1
+        r4 := randomness.r4
+        r5 := randomness.r5
+      } := by
+  let y8 := DigitAdaptor.garble oracles.y8 (-randomness.r5) inputKey.y
+  let r8 := DigitAdaptor.bitsK y8.2
+  let y10 := DigitAdaptor.garble oracles.y10 (-r8) inputKey.y
+  let r10 := DigitAdaptor.bitsK y10.2
+  let x7 := DigitAdaptor.garble oracles.x7 (-randomness.r4) inputKey.x
+  let r7 := DigitAdaptor.bitsK x7.2
+  let x9 := DigitAdaptor.garble oracles.x9 (-(randomness.r1 + r7)) inputKey.x
+  let r9 := DigitAdaptor.bitsK x9.2
+  have r10Public : r10 = digitPublicOffset oracles.y10 inputKey.y :=
+    digitBitsK_independentOfSlope _ _ _ _
+  have r9Public : r9 = digitPublicOffset oracles.x9 inputKey.x :=
+    digitBitsK_independentOfSlope _ _ _ _
+  change YCoefficients.mk (c0 - r10 - r9) (c1 + randomness.r1)
+    (c4 + randomness.r4) (c5 + randomness.r5) = _
+  rw [r10Public, r9Public]
+  simp only [yCoefficientTransport, biquadraticZeroPad]
+  rw [sub_sub]
+
+/-- These values are the five independent masks for an RCB Z table. -/
+structure ZCoefficientCoin where
+  zeroPad : BaseField
+  r2 : BaseField
+  r3 : BaseField
+  r4 : BaseField
+  r5 : BaseField
+deriving Fintype, Inhabited
+
+/-- These values are the five public coefficients of an RCB Z table. -/
+structure ZCoefficients where
+  c0 : BaseField
+  c2 : BaseField
+  c3 : BaseField
+  c4 : BaseField
+  c5 : BaseField
+deriving Fintype, Inhabited
+
+/-- This is the affine map from Z-table masks to public coefficients. -/
+def zCoefficientTransport (c0 c2 c3 c4 c5 : BaseField) :
+    ZCoefficientCoin → ZCoefficients :=
+  fun coin => {
+    c0 := c0 - coin.zeroPad
+    c2 := c2 + coin.r2
+    c3 := c3 + coin.r3
+    c4 := c4 + coin.r4
+    c5 := c5 + coin.r5
+  }
+
+/-- This map recovers all Z-table masks from the public coefficients. -/
+def zCoefficientTransportInverse (c0 c2 c3 c4 c5 : BaseField) :
+    ZCoefficients → ZCoefficientCoin :=
+  fun coefficients => {
+    zeroPad := c0 - coefficients.c0
+    r2 := coefficients.c2 - c2
+    r3 := coefficients.c3 - c3
+    r4 := coefficients.c4 - c4
+    r5 := coefficients.c5 - c5
+  }
+
+theorem zCoefficientTransport_leftInverse (c0 c2 c3 c4 c5 : BaseField) :
+    Function.LeftInverse
+      (zCoefficientTransportInverse c0 c2 c3 c4 c5)
+      (zCoefficientTransport c0 c2 c3 c4 c5) := by
+  intro coin
+  cases coin
+  simp only [zCoefficientTransport, zCoefficientTransportInverse]
+  congr <;> ring
+
+theorem zCoefficientTransport_rightInverse (c0 c2 c3 c4 c5 : BaseField) :
+    Function.RightInverse
+      (zCoefficientTransportInverse c0 c2 c3 c4 c5)
+      (zCoefficientTransport c0 c2 c3 c4 c5) := by
+  intro coefficients
+  cases coefficients
+  simp only [zCoefficientTransport, zCoefficientTransportInverse]
+  congr <;> ring
+
+/-- The Z-table coefficient transform is a finite equivalence. -/
+def zCoefficientEquiv (c0 c2 c3 c4 c5 : BaseField) :
+    ZCoefficientCoin ≃ ZCoefficients := {
+  toFun := zCoefficientTransport c0 c2 c3 c4 c5
+  invFun := zCoefficientTransportInverse c0 c2 c3 c4 c5
+  left_inv := zCoefficientTransport_leftInverse c0 c2 c3 c4 c5
+  right_inv := zCoefficientTransport_rightInverse c0 c2 c3 c4 c5
+}
+
+/-- Public Z-table coefficients are uniform for each fixed private row. -/
+theorem map_uniform_zCoefficientTransport (c0 c2 c3 c4 c5 : BaseField) :
+    (PMF.uniformOfFintype ZCoefficientCoin).map
+        (zCoefficientTransport c0 c2 c3 c4 c5) =
+      PMF.uniformOfFintype ZCoefficients :=
+  map_uniformOfFintype_equivBetween (zCoefficientEquiv c0 c2 c3 c4 c5)
+
+/-- This projection reads the five public Z coefficients. -/
+def ZCoefficients.ofTable (table : Biquadratic.Table) : ZCoefficients := {
+  c0 := table.c0.getD 0
+  c2 := table.c2.getD 0
+  c3 := table.c3.getD 0
+  c4 := table.c4.getD 0
+  c5 := table.c5.getD 0
+}
+
+/-- Real Z garbling uses the public zero-pad affine transport. -/
+theorem biquadraticGarbleZ_coefficients
+    (c0 c2 c3 c4 c5 : BaseField) (randomness : Biquadratic.ZRandomness)
+    (oracles : Biquadratic.Oracles) (inputKey : InputMacKey) :
+    ZCoefficients.ofTable
+        (Biquadratic.garbleZ c0 c2 c3 c4 c5 randomness oracles inputKey) =
+      zCoefficientTransport c0 c2 c3 c4 c5 {
+        zeroPad := biquadraticZeroPad oracles inputKey
+        r2 := randomness.r2
+        r3 := randomness.r3
+        r4 := randomness.r4
+        r5 := randomness.r5
+      } := by
+  let y6 := DigitAdaptor.garble oracles.y6 (-randomness.r3) inputKey.y
+  let r6 := DigitAdaptor.bitsK y6.2
+  let y8 := DigitAdaptor.garble oracles.y8 (-randomness.r5) inputKey.y
+  let r8 := DigitAdaptor.bitsK y8.2
+  let y10 := DigitAdaptor.garble oracles.y10 (-(randomness.r2 + r8)) inputKey.y
+  let r10 := DigitAdaptor.bitsK y10.2
+  let x7 := DigitAdaptor.garble oracles.x7 (-randomness.r4) inputKey.x
+  let r7 := DigitAdaptor.bitsK x7.2
+  let x9 := DigitAdaptor.garble oracles.x9 (-(r6 + r7)) inputKey.x
+  let r9 := DigitAdaptor.bitsK x9.2
+  have r10Public : r10 = digitPublicOffset oracles.y10 inputKey.y :=
+    digitBitsK_independentOfSlope _ _ _ _
+  have r9Public : r9 = digitPublicOffset oracles.x9 inputKey.x :=
+    digitBitsK_independentOfSlope _ _ _ _
+  change ZCoefficients.mk (c0 - r10 - r9) (c2 + randomness.r2)
+    (c3 + randomness.r3) (c4 + randomness.r4) (c5 + randomness.r5) = _
+  rw [r10Public, r9Public]
+  simp only [zCoefficientTransport, biquadraticZeroPad]
+  rw [sub_sub]
 
 /-- Good hash lifts give an exact independent uniform field value. -/
 theorem map_uniform_goodHashLiftEquiv :
