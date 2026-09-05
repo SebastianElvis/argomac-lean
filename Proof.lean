@@ -12,6 +12,7 @@ import Proof.IdealEncoding
 import Proof.Lamport
 import Proof.Linking
 import Proof.ProgrammingBridge
+import Proof.PublicSample
 import Proof.RCBComplete
 import Proof.Security
 import Proof.Simulator
