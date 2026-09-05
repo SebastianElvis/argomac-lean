@@ -372,6 +372,10 @@ It applies this result to the three real curve coefficients.
 For every fixed hidden context, these coefficients are an affine bijection of the bridge key and two uniform masks.
 Lean also proves the analogous five-mask affine bijection for the public RCB X coefficients.
 The digit-adaptor offset is independent of its private slope.
+The 384-bit hash domain splits into $p\lfloor 2^{384}/p\rfloor$ complete field fibers and one suffix.
+Lean proves exact uniform field transport on the complete fibers.
+It also proves that the suffix has exact mass
+$(2^{384}\bmod p)/2^{384}$, which is at most $p/2^{384}$.
 
 The complete row repairs the known perfect-correctness failure.
 The generic bounded bridge is complete.
