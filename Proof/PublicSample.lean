@@ -202,16 +202,56 @@ def SimulatorCoin.state (coin : SimulatorCoin) : CircuitSimulatorState := {
   inputKey := coin.inputKey
 }
 
+/-- This public table is a witness for the finite simulator sample. -/
+def defaultBitAdaptorTable : BitAdaptor.Table := {
+  trueRow := 0
+}
+
+/-- This RCB row is a witness for the finite simulator sample. -/
+def defaultRowPublicSample : RowPublicSample := {
+  x := {
+    coefficients := fun _ => 0
+    tables := fun _ => Vector.replicate coordinateBitCount defaultBitAdaptorTable
+  }
+  y := {
+    coefficients := fun _ => 0
+    tables := fun _ => Vector.replicate coordinateBitCount defaultBitAdaptorTable
+  }
+  z := {
+    coefficients := fun _ => 0
+    tables := fun _ => Vector.replicate coordinateBitCount defaultBitAdaptorTable
+  }
+}
+
+/-- This value is an explicit witness for the complete simulator coin. -/
+def defaultSimulatorCoin : SimulatorCoin := {
+  tableSample := {
+    curve := {
+      coefficients := fun _ => 0
+      tables := fun _ => Vector.replicate coordinateBitCount defaultBitAdaptorTable
+    }
+    points := Vector.replicate FieldMacToECMac.outputMacCount defaultRowPublicSample
+  }
+  oracles := {
+    fixedOracle := ⟨fun _ => Equiv.refl Block⟩
+    encOracle := ⟨fun _ => Equiv.refl Block⟩
+    hashOracle := fun _ => (0, 0)
+  }
+  inputKey := {
+    x := Vector.replicate coordinateBitCount { falseLabel := 0, trueLabel := 0 }
+    y := Vector.replicate coordinateBitCount { falseLabel := 0, trueLabel := 0 }
+  }
+}
+
 /-- The offline simulator samples its complete scalar-independent coin uniformly. -/
-def simulatorStateTape (witness : SimulatorCoin)
+def simulatorStateTape
     (_parameter : Nat) (_topology : Garbling.Topology) : PMF CircuitSimulatorState :=
-  letI : Nonempty SimulatorCoin := ⟨witness⟩
+  letI : Nonempty SimulatorCoin := ⟨defaultSimulatorCoin⟩
   (PMF.uniformOfFintype SimulatorCoin).map SimulatorCoin.state
 
 /-- This value connects the finite offline sample to the online simulator. -/
-noncomputable def concreteCircuitSimulator [FieldCertificate]
-    (witness : SimulatorCoin) :=
-  circuitSimulator (simulatorStateTape witness)
+noncomputable def concreteCircuitSimulator [FieldCertificate] :=
+  circuitSimulator simulatorStateTape
 
 end
 
