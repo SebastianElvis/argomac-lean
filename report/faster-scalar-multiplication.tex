@@ -366,10 +366,16 @@ Lean now defines the concrete online simulator under the challenge interface.
 It returns the selected labels, retargets the curve and point requests, and applies the exact linked schedule.
 The offline simulator coin is finite and contains no scalar or selected input.
 It samples every public coefficient, ciphertext row, label pair, permutation family, and random oracle uniformly.
+An explicit zero-valued coin supplies the nonempty witness, so the simulator needs no witness from its caller.
+Lean proves that a finite equivalence transports a uniform PMF between two finite types.
+It applies this result to the three real curve coefficients.
+For every fixed hidden context, these coefficients are an affine bijection of the bridge key and two uniform masks.
+Lean also proves the analogous five-mask affine bijection for the public RCB X coefficients.
+The digit-adaptor offset is independent of its private slope.
 
 The complete row repairs the known perfect-correctness failure.
 The generic bounded bridge is complete.
-The construction still lacks the distributional hop from real public tables to this scalar-independent offline coin.
+The construction still lacks the distributional hop for the RCB zero-pad masks and ciphertext rows.
 It also lacks the final adaptive collision bound for that hop.
 The worst selected branch uses the three hash slots.
 Its zero-query numerator is
