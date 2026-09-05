@@ -165,6 +165,85 @@ theorem Garbling.Randomness.data_injective :
   cases equal
   rfl
 
+/-- This type contains every garbling value except the fixed-key oracle. -/
+structure GarblingRandomnessRest where
+  algebraic : GarblingAlgebraicData
+  offsetsClamped : ∀ [FieldCertificate] [GroupCertificate],
+    algebraic.point.offsets.IsClamped
+  inputMacKey : InputMacKey
+  encPRFOracle : PermutationOracle EncPRF.PermutationIndex Block
+  hashOracle : EncPRF.HashOracle
+
+noncomputable def GarblingRandomnessRest.data
+    (rest : GarblingRandomnessRest) : GarblingRandomnessData := {
+  algebraic := rest.algebraic
+  oracles := {
+    fixedKeyOracle := Classical.choice inferInstance
+    inputMacKey := rest.inputMacKey
+    encPRFOracle := rest.encPRFOracle
+    hashOracle := rest.hashOracle
+  }
+}
+
+theorem GarblingRandomnessRest.data_injective :
+    Function.Injective GarblingRandomnessRest.data := by
+  intro first second equal
+  cases first
+  cases second
+  cases equal
+  rfl
+
+noncomputable instance garblingRandomnessRestFintype :
+    Fintype GarblingRandomnessRest :=
+  Fintype.ofInjective GarblingRandomnessRest.data
+    GarblingRandomnessRest.data_injective
+
+def garblingRandomnessRest (randomness : Garbling.Randomness) :
+    GarblingRandomnessRest := {
+  algebraic := {
+    point := {
+      offsets := randomness.offsets
+      pointRandomness := randomness.pointRandomness
+    }
+    field := {
+      bridgeKey := randomness.bridgeKey
+      curveMask := randomness.curveMask
+      curveR1 := randomness.curveR1
+      curveR2 := randomness.curveR2
+    }
+  }
+  offsetsClamped := randomness.offsetsClamped
+  inputMacKey := randomness.inputMacKey
+  encPRFOracle := randomness.encPRFOracle
+  hashOracle := randomness.hashOracle
+}
+
+/-- A garbling tape is one fixed-key oracle and all remaining values. -/
+def garblingRandomnessFixedOracleEquiv :
+    Garbling.Randomness ≃
+      PermutationOracle Pipeline.FixedKeyIndex Block × GarblingRandomnessRest where
+  toFun randomness := (randomness.fixedKeyOracle, garblingRandomnessRest randomness)
+  invFun sample := {
+    offsets := sample.2.algebraic.point.offsets
+    offsetsClamped := sample.2.offsetsClamped
+    pointRandomness := sample.2.algebraic.point.pointRandomness
+    bridgeKey := sample.2.algebraic.field.bridgeKey
+    curveMask := sample.2.algebraic.field.curveMask
+    curveR1 := sample.2.algebraic.field.curveR1
+    curveR2 := sample.2.algebraic.field.curveR2
+    fixedKeyOracle := sample.1
+    inputMacKey := sample.2.inputMacKey
+    encPRFOracle := sample.2.encPRFOracle
+    hashOracle := sample.2.hashOracle
+  }
+  left_inv randomness := by
+    cases randomness
+    rfl
+  right_inv sample := by
+    rcases sample with ⟨oracle, rest⟩
+    cases rest
+    rfl
+
 noncomputable instance garblingRandomnessFintype : Fintype Garbling.Randomness :=
   Fintype.ofInjective Garbling.Randomness.data Garbling.Randomness.data_injective
 

@@ -390,7 +390,11 @@ The schedule preserves the uniform joint oracle tape exactly.
 Davies--Meyer feed-forward is a componentwise involution, and three blocks are equivalent to one 384-bit value.
 Thus, the construction's 384-bit gate hash is exactly uniform.
 Its rejected suffix has the exact local mass above.
-The next proof must lift this marginal from the fixed-key oracle to the complete garbling tape.
+Lean splits the complete garbling tape into a uniform fixed-key oracle and all remaining randomness.
+A finite mixture theorem lifts the local law to the complete security tape.
+The label can depend on every non-fixed-oracle value.
+The next proof must instantiate this law for every selected gate.
+It must also complete the Y, Z, zero-pad, and ciphertext transports.
 
 The complete row repairs the known perfect-correctness failure.
 The generic bounded bridge is complete.

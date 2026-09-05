@@ -261,6 +261,10 @@ theorem hashLiftRoundingArithmeticHas100Bits :
 #print axioms ArgoMAC.Security.map_uniformOfFintype_equivBetween
 #print axioms ArgoMAC.Security.map_uniform_prod_snd
 #print axioms ArgoMAC.Security.map_uniform_prod_fst
+#print axioms ArgoMAC.Security.uniform_prod_eq_bind
+#print axioms ArgoMAC.Security.map_uniform_prod_of_uniform_fiber
+#print axioms ArgoMAC.Security.map_uniform_garblingRandomness_fixedKeyOracle
+#print axioms ArgoMAC.Security.map_randomTape_fixedKeyOracle
 #print axioms ArgoMAC.Security.map_uniform_swapProgramTapeSchedule_snd
 #print axioms ArgoMAC.Security.swapProgramHashTapeSchedule_snd
 #print axioms ArgoMAC.Security.map_uniform_fixedHashBlocks
@@ -281,8 +285,14 @@ theorem hashLiftRoundingArithmeticHas100Bits :
 #print axioms ArgoMAC.Security.map_uniform_fixedDaviesMeyerHashLift
 #print axioms ArgoMAC.Security.map_uniform_hashLiftSplitEquiv
 #print axioms ArgoMAC.Security.map_uniform_fixedDaviesMeyerHashSplit
+#print axioms ArgoMAC.Security.map_uniform_fixedOracleProduct_fixedDaviesMeyerHashSplit
+#print axioms ArgoMAC.Security.map_uniform_garblingRandomness_fixedDaviesMeyerHashSplit
+#print axioms ArgoMAC.Security.map_randomTape_fixedDaviesMeyerHashSplit
+#print axioms ArgoMAC.Security.map_randomTape_dependentDaviesMeyerHashSplit
 #print axioms ArgoMAC.Security.uniform_hashLiftBadSet_mass
 #print axioms ArgoMAC.Security.fixedDaviesMeyerHashSplit_badMass
+#print axioms ArgoMAC.Security.randomTape_fixedDaviesMeyerHashSplit_badMass
+#print axioms ArgoMAC.Security.randomTape_dependentDaviesMeyerHashSplit_badMass
 #print axioms ArgoMAC.Security.uniform_hashLiftBadSet_mass_le
 #print axioms ArgoMAC.Security.finiteBadEventUnionMass_le
 #print axioms ArgoMAC.Security.selectedHashLiftBadUnion_mass_le

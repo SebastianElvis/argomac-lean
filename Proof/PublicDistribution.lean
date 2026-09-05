@@ -78,6 +78,82 @@ theorem map_uniform_prod_ignore_snd
   rw [← PMF.map_comp]
   rw [map_uniform_prod_fst]
 
+/-- A finite uniform product is two independent uniform samples. -/
+theorem uniform_prod_eq_bind
+    {First : Type uSource} {Second : Type uTarget}
+    [Fintype First] [Nonempty First] [Fintype Second] [Nonempty Second] :
+    PMF.uniformOfFintype (First × Second) =
+      (PMF.uniformOfFintype Second).bind fun second =>
+        (PMF.uniformOfFintype First).map fun first => (first, second) := by
+  classical
+  apply PMF.ext
+  intro output
+  rcases output with ⟨first, second⟩
+  rw [PMF.bind_apply]
+  simp only [PMF.map_apply, PMF.uniformOfFintype_apply, Fintype.card_prod]
+  push_cast
+  rw [tsum_eq_single second]
+  · rw [tsum_eq_single first]
+    · simp only [if_pos]
+      rw [ENNReal.mul_inv] <;> try simp [Fintype.card_ne_zero]
+      ac_rfl
+    · intro other different
+      simp [Ne.symm different]
+  · intro other different
+    simp [Ne.symm different]
+
+/-- Equal uniform fiber laws give one uniform mixed law. -/
+theorem map_uniform_prod_of_uniform_fiber
+    {First : Type uSource} {Second : Type uTarget} {Output : Type uSample}
+    [Fintype First] [Nonempty First] [Fintype Second] [Nonempty Second]
+    [Fintype Output] [Nonempty Output]
+    (function : First → Second → Output)
+    (fiber : ∀ second,
+      (PMF.uniformOfFintype First).map (fun first => function first second) =
+        PMF.uniformOfFintype Output) :
+    (PMF.uniformOfFintype (First × Second)).map
+        (fun sample => function sample.1 sample.2) =
+      PMF.uniformOfFintype Output := by
+  rw [uniform_prod_eq_bind]
+  rw [PMF.map_bind]
+  simp_rw [PMF.map_comp]
+  simp only [Function.comp_def]
+  simp_rw [fiber]
+  exact PMF.bind_const _ _
+
+/-- The fixed-key oracle is uniform in the complete garbling tape. -/
+theorem map_uniform_garblingRandomness_fixedKeyOracle
+    (witness : Garbling.Randomness) :
+    letI : Nonempty Garbling.Randomness := ⟨witness⟩
+    (PMF.uniformOfFintype Garbling.Randomness).map
+        Garbling.Randomness.fixedKeyOracle =
+      PMF.uniformOfFintype
+        (PermutationOracle Pipeline.FixedKeyIndex Block) := by
+  letI : Nonempty Garbling.Randomness := ⟨witness⟩
+  letI : Nonempty GarblingRandomnessRest := ⟨garblingRandomnessRest witness⟩
+  calc
+    (PMF.uniformOfFintype Garbling.Randomness).map
+        Garbling.Randomness.fixedKeyOracle =
+      ((PMF.uniformOfFintype Garbling.Randomness).map
+        garblingRandomnessFixedOracleEquiv).map Prod.fst := by
+          rw [PMF.map_comp]
+          rfl
+    _ = (PMF.uniformOfFintype
+        (PermutationOracle Pipeline.FixedKeyIndex Block × GarblingRandomnessRest)).map
+          Prod.fst := by rw [map_uniformOfFintype_equivBetween]
+    _ = PMF.uniformOfFintype
+        (PermutationOracle Pipeline.FixedKeyIndex Block) := map_uniform_prod_fst
+
+/-- The security tape keeps the exact uniform fixed-key-oracle marginal. -/
+theorem map_randomTape_fixedKeyOracle
+    (witness : Garbling.Randomness) (parameter : Nat) :
+    (randomTape witness parameter).map Garbling.Randomness.fixedKeyOracle =
+      PMF.uniformOfFintype
+        (PermutationOracle Pipeline.FixedKeyIndex Block) := by
+  letI : Nonempty Garbling.Randomness := ⟨witness⟩
+  rw [randomTape]
+  exact map_uniform_garblingRandomness_fixedKeyOracle witness
+
 /-- A swap-programmed target tape keeps a uniform marginal. -/
 theorem map_uniform_swapProgramTapeSchedule_snd
     {Index : Type uIndex} {Slot : Type uSample}
@@ -498,6 +574,77 @@ theorem map_uniform_fixedDaviesMeyerHashSplit
   rw [map_uniform_fixedDaviesMeyerHashLift]
   exact map_uniform_hashLiftSplitEquiv
 
+/-- A gate hash stays uniform in the fixed-oracle product tape. -/
+theorem map_uniform_fixedOracleProduct_fixedDaviesMeyerHashSplit
+    (restWitness : GarblingRandomnessRest)
+    (location : Pipeline.FixedKeyLocation) (window : Nat)
+    (label : GarblingRandomnessRest → Block) :
+    letI : Nonempty GarblingRandomnessRest := ⟨restWitness⟩
+    (PMF.uniformOfFintype
+      (PermutationOracle Pipeline.FixedKeyIndex Block × GarblingRandomnessRest)).map
+        (fun sample => hashLiftSplitEquiv
+          (fixedDaviesMeyerHashLift location window (label sample.2) sample.1)) =
+      PMF.uniformOfFintype (GoodHashLift ⊕ BadHashLift) := by
+  letI : Nonempty GarblingRandomnessRest := ⟨restWitness⟩
+  exact map_uniform_prod_of_uniform_fiber
+    (First := PermutationOracle Pipeline.FixedKeyIndex Block)
+    (Second := GarblingRandomnessRest)
+    (Output := GoodHashLift ⊕ BadHashLift)
+    (fun oracle rest => hashLiftSplitEquiv
+      (fixedDaviesMeyerHashLift location window (label rest) oracle))
+    (fun rest => map_uniform_fixedDaviesMeyerHashSplit
+      location window (label rest))
+
+/-- A gate hash stays uniform when its label depends on non-oracle randomness. -/
+theorem map_uniform_garblingRandomness_fixedDaviesMeyerHashSplit
+    (witness : Garbling.Randomness) (location : Pipeline.FixedKeyLocation)
+    (window : Nat) (label : GarblingRandomnessRest → Block) :
+    letI : Nonempty Garbling.Randomness := ⟨witness⟩
+    (PMF.uniformOfFintype Garbling.Randomness).map
+        (fun randomness => hashLiftSplitEquiv
+          (fixedDaviesMeyerHashLift location window
+            (label (garblingRandomnessRest randomness)) randomness.fixedKeyOracle)) =
+      PMF.uniformOfFintype (GoodHashLift ⊕ BadHashLift) := by
+  letI : Nonempty Garbling.Randomness := ⟨witness⟩
+  letI : Nonempty GarblingRandomnessRest := ⟨garblingRandomnessRest witness⟩
+  rw [show (fun randomness : Garbling.Randomness => hashLiftSplitEquiv
+      (fixedDaviesMeyerHashLift location window
+        (label (garblingRandomnessRest randomness)) randomness.fixedKeyOracle)) =
+      (fun sample => hashLiftSplitEquiv
+        (fixedDaviesMeyerHashLift location window (label sample.2) sample.1)) ∘
+        garblingRandomnessFixedOracleEquiv by rfl]
+  rw [← PMF.map_comp]
+  rw [map_uniformOfFintype_equivBetween]
+  exact map_uniform_fixedOracleProduct_fixedDaviesMeyerHashSplit
+    (garblingRandomnessRest witness) location window label
+
+/-- One gate in the complete security tape has the exact hash-lift law. -/
+theorem map_randomTape_fixedDaviesMeyerHashSplit
+    (witness : Garbling.Randomness) (parameter : Nat)
+    (location : Pipeline.FixedKeyLocation) (window : Nat) (label : Block) :
+    (randomTape witness parameter).map
+        ((hashLiftSplitEquiv ∘ fixedDaviesMeyerHashLift location window label) ∘
+          Garbling.Randomness.fixedKeyOracle) =
+      PMF.uniformOfFintype (GoodHashLift ⊕ BadHashLift) := by
+  rw [← PMF.map_comp]
+  rw [map_randomTape_fixedKeyOracle]
+  exact map_uniform_fixedDaviesMeyerHashSplit location window label
+
+/-- The security-tape gate hash stays uniform for a non-oracle-dependent label. -/
+theorem map_randomTape_dependentDaviesMeyerHashSplit
+    (witness : Garbling.Randomness) (parameter : Nat)
+    (location : Pipeline.FixedKeyLocation) (window : Nat)
+    (label : GarblingRandomnessRest → Block) :
+    (randomTape witness parameter).map
+        (fun randomness => hashLiftSplitEquiv
+          (fixedDaviesMeyerHashLift location window
+            (label (garblingRandomnessRest randomness)) randomness.fixedKeyOracle)) =
+      PMF.uniformOfFintype (GoodHashLift ⊕ BadHashLift) := by
+  letI : Nonempty Garbling.Randomness := ⟨witness⟩
+  rw [randomTape]
+  exact map_uniform_garblingRandomness_fixedDaviesMeyerHashSplit
+    witness location window label
+
 /-- This event selects the rejected suffix after the exact split. -/
 def hashLiftBadSet : Set (GoodHashLift ⊕ BadHashLift) :=
   fun sample => match sample with
@@ -548,6 +695,33 @@ theorem fixedDaviesMeyerHashSplit_badMass
       ((2 ^ 384 % baseFieldModulus : Nat) : ENNReal) /
         ((2 ^ 384 : Nat) : ENNReal) := by
   rw [map_uniform_fixedDaviesMeyerHashSplit]
+  exact uniform_hashLiftBadSet_mass
+
+/-- One complete-tape gate has the exact rejected-suffix mass. -/
+theorem randomTape_fixedDaviesMeyerHashSplit_badMass
+    (witness : Garbling.Randomness) (parameter : Nat)
+    (location : Pipeline.FixedKeyLocation) (window : Nat) (label : Block) :
+    ((randomTape witness parameter).map
+        ((hashLiftSplitEquiv ∘ fixedDaviesMeyerHashLift location window label) ∘
+          Garbling.Randomness.fixedKeyOracle)).toOuterMeasure hashLiftBadSet =
+      ((2 ^ 384 % baseFieldModulus : Nat) : ENNReal) /
+        ((2 ^ 384 : Nat) : ENNReal) := by
+  rw [map_randomTape_fixedDaviesMeyerHashSplit]
+  exact uniform_hashLiftBadSet_mass
+
+/-- A dependent-label security-tape gate has the exact rejected-suffix mass. -/
+theorem randomTape_dependentDaviesMeyerHashSplit_badMass
+    (witness : Garbling.Randomness) (parameter : Nat)
+    (location : Pipeline.FixedKeyLocation) (window : Nat)
+    (label : GarblingRandomnessRest → Block) :
+    ((randomTape witness parameter).map
+        (fun randomness => hashLiftSplitEquiv
+          (fixedDaviesMeyerHashLift location window
+            (label (garblingRandomnessRest randomness))
+            randomness.fixedKeyOracle))).toOuterMeasure hashLiftBadSet =
+      ((2 ^ 384 % baseFieldModulus : Nat) : ENNReal) /
+        ((2 ^ 384 : Nat) : ENNReal) := by
+  rw [map_randomTape_dependentDaviesMeyerHashSplit]
   exact uniform_hashLiftBadSet_mass
 
 /-- The rejected mass is at most one field modulus over the hash domain. -/
