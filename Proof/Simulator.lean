@@ -784,6 +784,71 @@ theorem runOracleProgramTraceCoupling_result_eq
       rcases member with ⟨value, _, tailMember⟩
       exact inductionHypothesis value stateOne stateTwo output tailMember
 
+/-- Related states remain related after both coupled runs. -/
+theorem runOracleProgramTraceCoupling_states_related
+    {oracle : OracleSpec.{uQuery, uAnswer}} {Result : Type uResult}
+    {StateOne : Type uStateOne} {StateTwo : Type uStateTwo}
+    (handlerOne : OracleHandler oracle StateOne)
+    (handlerTwo : OracleHandler oracle StateTwo)
+    (related : StateOne → StateTwo → Prop)
+    (handlerRelated : ∀ query stateOne stateTwo, related stateOne stateTwo →
+      (handlerOne query stateOne).1 = (handlerTwo query stateTwo).1 ∧
+        related (handlerOne query stateOne).2 (handlerTwo query stateTwo).2)
+    {budget : Nat} (program : OracleProgram oracle Result budget)
+    (stateOne : StateOne) (stateTwo : StateTwo)
+    (statesRelated : related stateOne stateTwo)
+    (output :
+      (Result × StateOne × List (oracle.Query × StateOne)) ×
+        (Result × StateTwo × List (oracle.Query × StateTwo)))
+    (member : output ∈
+      (runOracleProgramTraceCoupling handlerOne handlerTwo
+        program stateOne stateTwo).support) :
+    related output.1.2.1 output.2.2.1 := by
+  induction program generalizing stateOne stateTwo output with
+  | pure result =>
+      simp only [runOracleProgramTraceCoupling, PMF.mem_support_map_iff] at member
+      rcases member with ⟨value, _, rfl⟩
+      exact statesRelated
+  | query request next inductionHypothesis =>
+      simp only [runOracleProgramTraceCoupling, PMF.mem_support_map_iff] at member
+      rcases member with ⟨tail, tailMember, rfl⟩
+      have nextRelated := handlerRelated request stateOne stateTwo statesRelated
+      exact inductionHypothesis _ _ _ nextRelated.2 tail tailMember
+  | sample distribution next inductionHypothesis =>
+      simp only [runOracleProgramTraceCoupling, PMF.mem_support_bind_iff] at member
+      rcases member with ⟨value, _, tailMember⟩
+      exact inductionHypothesis value stateOne stateTwo statesRelated output tailMember
+
+/-- Both coupled traces contain the same ordered query list. -/
+theorem runOracleProgramTraceCoupling_queries_eq
+    {oracle : OracleSpec.{uQuery, uAnswer}} {Result : Type uResult}
+    {StateOne : Type uStateOne} {StateTwo : Type uStateTwo}
+    (handlerOne : OracleHandler oracle StateOne)
+    (handlerTwo : OracleHandler oracle StateTwo)
+    {budget : Nat} (program : OracleProgram oracle Result budget)
+    (stateOne : StateOne) (stateTwo : StateTwo)
+    (output :
+      (Result × StateOne × List (oracle.Query × StateOne)) ×
+        (Result × StateTwo × List (oracle.Query × StateTwo)))
+    (member : output ∈
+      (runOracleProgramTraceCoupling handlerOne handlerTwo
+        program stateOne stateTwo).support) :
+    output.1.2.2.map Prod.fst = output.2.2.2.map Prod.fst := by
+  induction program generalizing stateOne stateTwo output with
+  | pure result =>
+      simp only [runOracleProgramTraceCoupling, PMF.mem_support_map_iff] at member
+      rcases member with ⟨value, _, rfl⟩
+      rfl
+  | query request next inductionHypothesis =>
+      simp only [runOracleProgramTraceCoupling, PMF.mem_support_map_iff] at member
+      rcases member with ⟨tail, tailMember, rfl⟩
+      exact congrArg (List.cons request)
+        (inductionHypothesis _ _ _ tail tailMember)
+  | sample distribution next inductionHypothesis =>
+      simp only [runOracleProgramTraceCoupling, PMF.mem_support_bind_iff] at member
+      rcases member with ⟨value, _, tailMember⟩
+      exact inductionHypothesis value stateOne stateTwo output tailMember
+
 /-- The coupled result-disagreement event has zero mass. -/
 theorem runOracleProgramTraceCoupling_disagreement_mass
     {oracle : OracleSpec.{uQuery, uAnswer}} {Result : Type uResult}
@@ -801,6 +866,373 @@ theorem runOracleProgramTraceCoupling_disagreement_mass
     intro member
     exact different (runOracleProgramTraceCoupling_result_eq handlerOne handlerTwo
       program stateOne stateTwo output member)
+  · rw [Set.indicator_of_notMem different]
+
+/-- This output shares one result and keeps two related traced states. -/
+structure RelatedTraceOutput
+    (oracle : OracleSpec.{uQuery, uAnswer}) (Result : Type uResult)
+    (StateOne : Type uStateOne) (StateTwo : Type uStateTwo)
+    (related : StateOne → StateTwo → Prop) where
+  result : Result
+  stateOne : StateOne
+  traceOne : List (oracle.Query × StateOne)
+  stateTwo : StateTwo
+  traceTwo : List (oracle.Query × StateTwo)
+  statesRelated : related stateOne stateTwo
+
+/-- Run one program with shared samples and related handler states. -/
+noncomputable def runOracleProgramRelatedTraceCoupling
+    {oracle : OracleSpec.{uQuery, uAnswer}} {Result : Type uResult}
+    {StateOne : Type uStateOne} {StateTwo : Type uStateTwo}
+    (handlerOne : OracleHandler oracle StateOne)
+    (handlerTwo : OracleHandler oracle StateTwo)
+    (related : StateOne → StateTwo → Prop)
+    (handlerRelated : ∀ query stateOne stateTwo, related stateOne stateTwo →
+      (handlerOne query stateOne).1 = (handlerTwo query stateTwo).1 ∧
+        related (handlerOne query stateOne).2 (handlerTwo query stateTwo).2) :
+    {budget : Nat} → (program : OracleProgram oracle Result budget) →
+      (stateOne : StateOne) → (stateTwo : StateTwo) → related stateOne stateTwo →
+      PMF (RelatedTraceOutput oracle Result StateOne StateTwo related)
+  | _, .pure result, stateOne, stateTwo, statesRelated =>
+      result.map fun value => {
+        result := value
+        stateOne
+        traceOne := []
+        stateTwo
+        traceTwo := []
+        statesRelated
+      }
+  | _, .query request next, stateOne, stateTwo, statesRelated =>
+      let answeredOne := handlerOne request stateOne
+      let answeredTwo := handlerTwo request stateTwo
+      let nextRelated := handlerRelated request stateOne stateTwo statesRelated
+      (runOracleProgramRelatedTraceCoupling handlerOne handlerTwo related handlerRelated
+        (next answeredOne.1) answeredOne.2 answeredTwo.2 nextRelated.2).map fun output => {
+          output with
+          traceOne := (request, stateOne) :: output.traceOne
+          traceTwo := (request, stateTwo) :: output.traceTwo
+        }
+  | _, .sample distribution next, stateOne, stateTwo, statesRelated =>
+      distribution.bind fun value =>
+        runOracleProgramRelatedTraceCoupling handlerOne handlerTwo related handlerRelated
+          (next value) stateOne stateTwo statesRelated
+
+/-- The first projection is the first traced handler run. -/
+theorem runOracleProgramRelatedTraceCoupling_fst
+    {oracle : OracleSpec.{uQuery, uAnswer}} {Result : Type uResult}
+    {StateOne : Type uStateOne} {StateTwo : Type uStateTwo}
+    (handlerOne : OracleHandler oracle StateOne)
+    (handlerTwo : OracleHandler oracle StateTwo)
+    (related : StateOne → StateTwo → Prop)
+    (handlerRelated : ∀ query stateOne stateTwo, related stateOne stateTwo →
+      (handlerOne query stateOne).1 = (handlerTwo query stateTwo).1 ∧
+        related (handlerOne query stateOne).2 (handlerTwo query stateTwo).2)
+    {budget : Nat} (program : OracleProgram oracle Result budget)
+    (stateOne : StateOne) (stateTwo : StateTwo)
+    (statesRelated : related stateOne stateTwo) :
+    (runOracleProgramRelatedTraceCoupling handlerOne handlerTwo related handlerRelated
+      program stateOne stateTwo statesRelated).map
+        (fun output => (output.result, output.stateOne, output.traceOne)) =
+      runOracleProgramWithTrace handlerOne program stateOne := by
+  induction program generalizing stateOne stateTwo with
+  | pure result =>
+      simp [runOracleProgramRelatedTraceCoupling, runOracleProgramWithTrace,
+        PMF.map_comp, Function.comp_def]
+  | query request next inductionHypothesis =>
+      simp only [runOracleProgramRelatedTraceCoupling, runOracleProgramWithTrace]
+      have nextRelated := handlerRelated request stateOne stateTwo statesRelated
+      rw [PMF.map_comp]
+      change (runOracleProgramRelatedTraceCoupling handlerOne handlerTwo related handlerRelated
+          (next (handlerOne request stateOne).1) (handlerOne request stateOne).2
+          (handlerTwo request stateTwo).2 nextRelated.2).map
+            ((fun output =>
+              (output.result, output.stateOne,
+                (request, stateOne) :: output.traceOne))) = _
+      calc
+        _ = ((runOracleProgramRelatedTraceCoupling handlerOne handlerTwo related
+              handlerRelated (next (handlerOne request stateOne).1)
+              (handlerOne request stateOne).2 (handlerTwo request stateTwo).2
+              nextRelated.2).map
+              (fun output => (output.result, output.stateOne, output.traceOne))).map
+              (fun output =>
+                (output.1, output.2.1, (request, stateOne) :: output.2.2)) := by
+            simp [PMF.map_comp, Function.comp_def]
+        _ = _ := by rw [inductionHypothesis]
+  | sample distribution next inductionHypothesis =>
+      simp only [runOracleProgramRelatedTraceCoupling, runOracleProgramWithTrace,
+        PMF.map_bind]
+      congr 1
+      funext sample
+      exact inductionHypothesis sample stateOne stateTwo statesRelated
+
+/-- The second projection is the second traced handler run. -/
+theorem runOracleProgramRelatedTraceCoupling_snd
+    {oracle : OracleSpec.{uQuery, uAnswer}} {Result : Type uResult}
+    {StateOne : Type uStateOne} {StateTwo : Type uStateTwo}
+    (handlerOne : OracleHandler oracle StateOne)
+    (handlerTwo : OracleHandler oracle StateTwo)
+    (related : StateOne → StateTwo → Prop)
+    (handlerRelated : ∀ query stateOne stateTwo, related stateOne stateTwo →
+      (handlerOne query stateOne).1 = (handlerTwo query stateTwo).1 ∧
+        related (handlerOne query stateOne).2 (handlerTwo query stateTwo).2)
+    {budget : Nat} (program : OracleProgram oracle Result budget)
+    (stateOne : StateOne) (stateTwo : StateTwo)
+    (statesRelated : related stateOne stateTwo) :
+    (runOracleProgramRelatedTraceCoupling handlerOne handlerTwo related handlerRelated
+      program stateOne stateTwo statesRelated).map
+        (fun output => (output.result, output.stateTwo, output.traceTwo)) =
+      runOracleProgramWithTrace handlerTwo program stateTwo := by
+  induction program generalizing stateOne stateTwo with
+  | pure result =>
+      simp [runOracleProgramRelatedTraceCoupling, runOracleProgramWithTrace,
+        PMF.map_comp, Function.comp_def]
+  | query request next inductionHypothesis =>
+      simp only [runOracleProgramRelatedTraceCoupling, runOracleProgramWithTrace]
+      have nextRelated := handlerRelated request stateOne stateTwo statesRelated
+      rw [← nextRelated.1]
+      rw [PMF.map_comp]
+      change (runOracleProgramRelatedTraceCoupling handlerOne handlerTwo related handlerRelated
+          (next (handlerOne request stateOne).1) (handlerOne request stateOne).2
+          (handlerTwo request stateTwo).2 nextRelated.2).map
+            ((fun output =>
+              (output.result, output.stateTwo,
+                (request, stateTwo) :: output.traceTwo))) = _
+      calc
+        _ = ((runOracleProgramRelatedTraceCoupling handlerOne handlerTwo related
+              handlerRelated (next (handlerOne request stateOne).1)
+              (handlerOne request stateOne).2 (handlerTwo request stateTwo).2
+              nextRelated.2).map
+              (fun output => (output.result, output.stateTwo, output.traceTwo))).map
+              (fun output =>
+                (output.1, output.2.1, (request, stateTwo) :: output.2.2)) := by
+            simp [PMF.map_comp, Function.comp_def]
+        _ = _ := by rw [inductionHypothesis]
+  | sample distribution next inductionHypothesis =>
+      simp only [runOracleProgramRelatedTraceCoupling, runOracleProgramWithTrace,
+        PMF.map_bind]
+      congr 1
+      funext sample
+      exact inductionHypothesis sample stateOne stateTwo statesRelated
+
+/-- This bridge output shares one middle value and keeps related states. -/
+structure RelatedBridgeOutput
+    (MiddleResult : Type uMiddle)
+    (StateOne : Type uStateOne) (StateTwo : Type uStateTwo)
+    (related : StateOne → StateTwo → Prop) where
+  result : MiddleResult
+  stateOne : StateOne
+  stateTwo : StateTwo
+  statesRelated : related stateOne stateTwo
+
+/-- Couple two related program phases through one related bridge. -/
+noncomputable def runOracleProgramsRelatedBridgeTraceCoupling
+    {oracle : OracleSpec.{uQuery, uAnswer}}
+    {FirstResult : Type uFirst} {MiddleResult : Type uMiddle}
+    {SecondResult : Type uSecond}
+    {StateOne : Type uStateOne} {StateTwo : Type uStateTwo}
+    (handlerOne : OracleHandler oracle StateOne)
+    (handlerTwo : OracleHandler oracle StateTwo)
+    (related : StateOne → StateTwo → Prop)
+    (handlerRelated : ∀ query stateOne stateTwo, related stateOne stateTwo →
+      (handlerOne query stateOne).1 = (handlerTwo query stateTwo).1 ∧
+        related (handlerOne query stateOne).2 (handlerTwo query stateTwo).2)
+    {firstBudget secondBudget : Nat}
+    (first : OracleProgram oracle FirstResult firstBudget)
+    (bridgeCoupling : FirstResult → (stateOne : StateOne) →
+      (stateTwo : StateTwo) → related stateOne stateTwo →
+        PMF (RelatedBridgeOutput MiddleResult StateOne StateTwo related))
+    (second : FirstResult → MiddleResult →
+      OracleProgram oracle SecondResult secondBudget)
+    (stateOne : StateOne) (stateTwo : StateTwo)
+    (statesRelated : related stateOne stateTwo) :
+    PMF ((SecondResult × StateOne × List (oracle.Query × StateOne)) ×
+      (SecondResult × StateTwo × List (oracle.Query × StateTwo))) :=
+  (runOracleProgramRelatedTraceCoupling handlerOne handlerTwo related handlerRelated
+    first stateOne stateTwo statesRelated).bind fun firstOutput =>
+      (bridgeCoupling firstOutput.result firstOutput.stateOne firstOutput.stateTwo
+        firstOutput.statesRelated).bind fun middleOutput =>
+          (runOracleProgramRelatedTraceCoupling handlerOne handlerTwo related handlerRelated
+            (second firstOutput.result middleOutput.result)
+            middleOutput.stateOne middleOutput.stateTwo middleOutput.statesRelated).map
+              fun secondOutput =>
+                ((secondOutput.result, secondOutput.stateOne,
+                    firstOutput.traceOne ++ secondOutput.traceOne),
+                  (secondOutput.result, secondOutput.stateTwo,
+                    firstOutput.traceTwo ++ secondOutput.traceTwo))
+
+/-- The first marginal is the first bridged traced run. -/
+theorem runOracleProgramsRelatedBridgeTraceCoupling_fst
+    {oracle : OracleSpec.{uQuery, uAnswer}}
+    {FirstResult : Type uFirst} {MiddleResult : Type uMiddle}
+    {SecondResult : Type uSecond}
+    {StateOne : Type uStateOne} {StateTwo : Type uStateTwo}
+    (handlerOne : OracleHandler oracle StateOne)
+    (handlerTwo : OracleHandler oracle StateTwo)
+    (related : StateOne → StateTwo → Prop)
+    (handlerRelated : ∀ query stateOne stateTwo, related stateOne stateTwo →
+      (handlerOne query stateOne).1 = (handlerTwo query stateTwo).1 ∧
+        related (handlerOne query stateOne).2 (handlerTwo query stateTwo).2)
+    {firstBudget secondBudget : Nat}
+    (first : OracleProgram oracle FirstResult firstBudget)
+    (bridgeOne : FirstResult → StateOne → PMF (MiddleResult × StateOne))
+    (bridgeCoupling : FirstResult → (stateOne : StateOne) →
+      (stateTwo : StateTwo) → related stateOne stateTwo →
+        PMF (RelatedBridgeOutput MiddleResult StateOne StateTwo related))
+    (bridgeFst : ∀ result stateOne stateTwo statesRelated,
+      (bridgeCoupling result stateOne stateTwo statesRelated).map
+          (fun output => (output.result, output.stateOne)) =
+        bridgeOne result stateOne)
+    (second : FirstResult → MiddleResult →
+      OracleProgram oracle SecondResult secondBudget)
+    (stateOne : StateOne) (stateTwo : StateTwo)
+    (statesRelated : related stateOne stateTwo) :
+    (runOracleProgramsRelatedBridgeTraceCoupling handlerOne handlerTwo related
+      handlerRelated first bridgeCoupling second stateOne stateTwo statesRelated).map
+        Prod.fst =
+      runOracleProgramsWithBridgeTrace handlerOne first bridgeOne second stateOne := by
+  simp only [runOracleProgramsRelatedBridgeTraceCoupling,
+    runOracleProgramsWithBridgeTrace, PMF.map_bind]
+  rw [← runOracleProgramRelatedTraceCoupling_fst handlerOne handlerTwo related
+    handlerRelated first stateOne stateTwo statesRelated]
+  rw [PMF.bind_map]
+  congr 1
+  funext firstOutput
+  simp only [PMF.map_comp, Function.comp_def]
+  rw [← bridgeFst firstOutput.result firstOutput.stateOne firstOutput.stateTwo
+    firstOutput.statesRelated]
+  rw [PMF.bind_map]
+  congr 1
+  funext middleOutput
+  change (runOracleProgramRelatedTraceCoupling handlerOne handlerTwo related handlerRelated
+      (second firstOutput.result middleOutput.result) middleOutput.stateOne
+      middleOutput.stateTwo middleOutput.statesRelated).map
+        ((fun output =>
+          (output.1, output.2.1, firstOutput.traceOne ++ output.2.2)) ∘
+          fun output => (output.result, output.stateOne, output.traceOne)) = _
+  rw [← PMF.map_comp]
+  rw [runOracleProgramRelatedTraceCoupling_fst]
+  rfl
+
+/-- The second marginal is the second bridged traced run. -/
+theorem runOracleProgramsRelatedBridgeTraceCoupling_snd
+    {oracle : OracleSpec.{uQuery, uAnswer}}
+    {FirstResult : Type uFirst} {MiddleResult : Type uMiddle}
+    {SecondResult : Type uSecond}
+    {StateOne : Type uStateOne} {StateTwo : Type uStateTwo}
+    (handlerOne : OracleHandler oracle StateOne)
+    (handlerTwo : OracleHandler oracle StateTwo)
+    (related : StateOne → StateTwo → Prop)
+    (handlerRelated : ∀ query stateOne stateTwo, related stateOne stateTwo →
+      (handlerOne query stateOne).1 = (handlerTwo query stateTwo).1 ∧
+        related (handlerOne query stateOne).2 (handlerTwo query stateTwo).2)
+    {firstBudget secondBudget : Nat}
+    (first : OracleProgram oracle FirstResult firstBudget)
+    (bridgeTwo : FirstResult → StateTwo → PMF (MiddleResult × StateTwo))
+    (bridgeCoupling : FirstResult → (stateOne : StateOne) →
+      (stateTwo : StateTwo) → related stateOne stateTwo →
+        PMF (RelatedBridgeOutput MiddleResult StateOne StateTwo related))
+    (bridgeSnd : ∀ result stateOne stateTwo statesRelated,
+      (bridgeCoupling result stateOne stateTwo statesRelated).map
+          (fun output => (output.result, output.stateTwo)) =
+        bridgeTwo result stateTwo)
+    (second : FirstResult → MiddleResult →
+      OracleProgram oracle SecondResult secondBudget)
+    (stateOne : StateOne) (stateTwo : StateTwo)
+    (statesRelated : related stateOne stateTwo) :
+    (runOracleProgramsRelatedBridgeTraceCoupling handlerOne handlerTwo related
+      handlerRelated first bridgeCoupling second stateOne stateTwo statesRelated).map
+        Prod.snd =
+      runOracleProgramsWithBridgeTrace handlerTwo first bridgeTwo second stateTwo := by
+  simp only [runOracleProgramsRelatedBridgeTraceCoupling,
+    runOracleProgramsWithBridgeTrace, PMF.map_bind]
+  rw [← runOracleProgramRelatedTraceCoupling_snd handlerOne handlerTwo related
+    handlerRelated first stateOne stateTwo statesRelated]
+  rw [PMF.bind_map]
+  congr 1
+  funext firstOutput
+  simp only [PMF.map_comp, Function.comp_def]
+  rw [← bridgeSnd firstOutput.result firstOutput.stateOne firstOutput.stateTwo
+    firstOutput.statesRelated]
+  rw [PMF.bind_map]
+  congr 1
+  funext middleOutput
+  change (runOracleProgramRelatedTraceCoupling handlerOne handlerTwo related handlerRelated
+      (second firstOutput.result middleOutput.result) middleOutput.stateOne
+      middleOutput.stateTwo middleOutput.statesRelated).map
+        ((fun output =>
+          (output.1, output.2.1, firstOutput.traceTwo ++ output.2.2)) ∘
+          fun output => (output.result, output.stateTwo, output.traceTwo)) = _
+  rw [← PMF.map_comp]
+  rw [runOracleProgramRelatedTraceCoupling_snd]
+  rfl
+
+/-- Both full coupled traces have the same second-phase result. -/
+theorem runOracleProgramsRelatedBridgeTraceCoupling_result_eq
+    {oracle : OracleSpec.{uQuery, uAnswer}}
+    {FirstResult : Type uFirst} {MiddleResult : Type uMiddle}
+    {SecondResult : Type uSecond}
+    {StateOne : Type uStateOne} {StateTwo : Type uStateTwo}
+    (handlerOne : OracleHandler oracle StateOne)
+    (handlerTwo : OracleHandler oracle StateTwo)
+    (related : StateOne → StateTwo → Prop)
+    (handlerRelated : ∀ query stateOne stateTwo, related stateOne stateTwo →
+      (handlerOne query stateOne).1 = (handlerTwo query stateTwo).1 ∧
+        related (handlerOne query stateOne).2 (handlerTwo query stateTwo).2)
+    {firstBudget secondBudget : Nat}
+    (first : OracleProgram oracle FirstResult firstBudget)
+    (bridgeCoupling : FirstResult → (stateOne : StateOne) →
+      (stateTwo : StateTwo) → related stateOne stateTwo →
+        PMF (RelatedBridgeOutput MiddleResult StateOne StateTwo related))
+    (second : FirstResult → MiddleResult →
+      OracleProgram oracle SecondResult secondBudget)
+    (stateOne : StateOne) (stateTwo : StateTwo)
+    (statesRelated : related stateOne stateTwo)
+    (output :
+      (SecondResult × StateOne × List (oracle.Query × StateOne)) ×
+        (SecondResult × StateTwo × List (oracle.Query × StateTwo)))
+    (member : output ∈
+      (runOracleProgramsRelatedBridgeTraceCoupling handlerOne handlerTwo related
+        handlerRelated first bridgeCoupling second stateOne stateTwo
+        statesRelated).support) :
+    output.1.1 = output.2.1 := by
+  simp only [runOracleProgramsRelatedBridgeTraceCoupling,
+    PMF.mem_support_bind_iff, PMF.mem_support_map_iff] at member
+  rcases member with ⟨_, _, _, _, secondOutput, _, rfl⟩
+  rfl
+
+/-- The full result-disagreement event has zero mass. -/
+theorem runOracleProgramsRelatedBridgeTraceCoupling_disagreement_mass
+    {oracle : OracleSpec.{uQuery, uAnswer}}
+    {FirstResult : Type uFirst} {MiddleResult : Type uMiddle}
+    {SecondResult : Type uSecond}
+    {StateOne : Type uStateOne} {StateTwo : Type uStateTwo}
+    (handlerOne : OracleHandler oracle StateOne)
+    (handlerTwo : OracleHandler oracle StateTwo)
+    (related : StateOne → StateTwo → Prop)
+    (handlerRelated : ∀ query stateOne stateTwo, related stateOne stateTwo →
+      (handlerOne query stateOne).1 = (handlerTwo query stateTwo).1 ∧
+        related (handlerOne query stateOne).2 (handlerTwo query stateTwo).2)
+    {firstBudget secondBudget : Nat}
+    (first : OracleProgram oracle FirstResult firstBudget)
+    (bridgeCoupling : FirstResult → (stateOne : StateOne) →
+      (stateTwo : StateTwo) → related stateOne stateTwo →
+        PMF (RelatedBridgeOutput MiddleResult StateOne StateTwo related))
+    (second : FirstResult → MiddleResult →
+      OracleProgram oracle SecondResult secondBudget)
+    (stateOne : StateOne) (stateTwo : StateTwo)
+    (statesRelated : related stateOne stateTwo) :
+    (runOracleProgramsRelatedBridgeTraceCoupling handlerOne handlerTwo related
+      handlerRelated first bridgeCoupling second stateOne stateTwo
+      statesRelated).toOuterMeasure
+        { output | output.1.1 ≠ output.2.1 } = 0 := by
+  rw [PMF.toOuterMeasure_apply, ENNReal.tsum_eq_zero]
+  intro output
+  by_cases different : output.1.1 ≠ output.2.1
+  · rw [Set.indicator_of_mem different, PMF.apply_eq_zero_iff]
+    intro member
+    exact different (runOracleProgramsRelatedBridgeTraceCoupling_result_eq
+      handlerOne handlerTwo related handlerRelated first bridgeCoupling second
+      stateOne stateTwo statesRelated output member)
   · rw [Set.indicator_of_notMem different]
 
 /-- This value identifies one layer in the composed circuit. -/
@@ -1946,5 +2378,84 @@ theorem runOracleProgramWithTrace_real_initial_replay
     idealOracleHandler RealIdealOracleRelated realIdealOracleHandlers_related
     program randomness (initialState randomness)
     (initialState_realIdealOracleRelated randomness)
+
+/-- This joint PMF couples a real run with its recording-handler run. -/
+noncomputable def realInitialTraceCoupling
+    {Result : Type uResult} {budget : Nat}
+    (program : OracleProgram Garbling.oracleSpec Result budget)
+    (randomness : Garbling.Randomness) :
+    PMF ((Result × Garbling.Randomness ×
+        List (Garbling.oracleSpec.Query × Garbling.Randomness)) ×
+      (Result × SimulatorState ×
+        List (Garbling.oracleSpec.Query × SimulatorState))) :=
+  runOracleProgramTraceCoupling Garbling.oracleHandler idealOracleHandler
+    program randomness (initialState randomness)
+
+/-- The first marginal is the traced real run. -/
+theorem realInitialTraceCoupling_fst
+    {Result : Type uResult} {budget : Nat}
+    (program : OracleProgram Garbling.oracleSpec Result budget)
+    (randomness : Garbling.Randomness) :
+    (realInitialTraceCoupling program randomness).map Prod.fst =
+      runOracleProgramWithTrace Garbling.oracleHandler program randomness :=
+  runOracleProgramTraceCoupling_fst Garbling.oracleHandler idealOracleHandler
+    program randomness (initialState randomness)
+
+/-- The second marginal is the traced recording-handler run. -/
+theorem realInitialTraceCoupling_snd
+    {Result : Type uResult} {budget : Nat}
+    (program : OracleProgram Garbling.oracleSpec Result budget)
+    (randomness : Garbling.Randomness) :
+    (realInitialTraceCoupling program randomness).map Prod.snd =
+      runOracleProgramWithTrace idealOracleHandler program (initialState randomness) :=
+  runOracleProgramTraceCoupling_snd Garbling.oracleHandler idealOracleHandler
+    RealIdealOracleRelated realIdealOracleHandlers_related program randomness
+    (initialState randomness) (initialState_realIdealOracleRelated randomness)
+
+/-- Every coupled real and recording run has the same result. -/
+theorem realInitialTraceCoupling_result_eq
+    {Result : Type uResult} {budget : Nat}
+    (program : OracleProgram Garbling.oracleSpec Result budget)
+    (randomness : Garbling.Randomness)
+    (output :
+      (Result × Garbling.Randomness ×
+          List (Garbling.oracleSpec.Query × Garbling.Randomness)) ×
+        (Result × SimulatorState ×
+          List (Garbling.oracleSpec.Query × SimulatorState)))
+    (member : output ∈ (realInitialTraceCoupling program randomness).support) :
+    output.1.1 = output.2.1 :=
+  runOracleProgramTraceCoupling_result_eq Garbling.oracleHandler idealOracleHandler
+    program randomness (initialState randomness) output member
+
+/-- Every coupled real and recording run ends in related states. -/
+theorem realInitialTraceCoupling_states_related
+    {Result : Type uResult} {budget : Nat}
+    (program : OracleProgram Garbling.oracleSpec Result budget)
+    (randomness : Garbling.Randomness)
+    (output :
+      (Result × Garbling.Randomness ×
+          List (Garbling.oracleSpec.Query × Garbling.Randomness)) ×
+        (Result × SimulatorState ×
+          List (Garbling.oracleSpec.Query × SimulatorState)))
+    (member : output ∈ (realInitialTraceCoupling program randomness).support) :
+    RealIdealOracleRelated output.1.2.1 output.2.2.1 :=
+  runOracleProgramTraceCoupling_states_related Garbling.oracleHandler idealOracleHandler
+    RealIdealOracleRelated realIdealOracleHandlers_related program randomness
+    (initialState randomness) (initialState_realIdealOracleRelated randomness) output member
+
+/-- Every coupled real and recording run has the same query list. -/
+theorem realInitialTraceCoupling_queries_eq
+    {Result : Type uResult} {budget : Nat}
+    (program : OracleProgram Garbling.oracleSpec Result budget)
+    (randomness : Garbling.Randomness)
+    (output :
+      (Result × Garbling.Randomness ×
+          List (Garbling.oracleSpec.Query × Garbling.Randomness)) ×
+        (Result × SimulatorState ×
+          List (Garbling.oracleSpec.Query × SimulatorState)))
+    (member : output ∈ (realInitialTraceCoupling program randomness).support) :
+    output.1.2.2.map Prod.fst = output.2.2.2.map Prod.fst :=
+  runOracleProgramTraceCoupling_queries_eq Garbling.oracleHandler idealOracleHandler
+    program randomness (initialState randomness) output member
 
 end Kriterion.ArgoMAC.Security

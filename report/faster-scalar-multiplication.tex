@@ -309,11 +309,10 @@ Thus, each map preserves the uniform joint PMF exactly.
 Programming a fixed output alone does not preserve uniformity.
 The permutation law also composes over every fixed finite target-tape schedule.
 Both oracle laws preserve the uniform fiber of fresh oracles that match a fixed query transcript.
-Lean also lifts an exact handler equivalence through every bounded adversary oracle program.
-It also replays each real query trace through the recording handler in exact PMF equality.
-Replay preserves the result, ordered query list, query count, and final recording state.
-Lean also runs one program under two related handlers with one shared sample tape.
-The joint PMF has both traced runs as exact marginals and has zero result-disagreement mass.
+Lean lifts an exact handler equivalence through every bounded adversary oracle program.
+Exact replay transports each real trace to the recording handler and preserves its result, query list, count, and final state.
+A shared-sample coupling gives both traced marginals, equal results and query lists, and related final states.
+Its structural form composes both adversary phases through an exact related-state bridge with zero result-disagreement mass.
 The permutation and hash involutions extend to the complete shared simulator state.
 Fresh state swaps preserve every shared transcript and label invariant.
 Each safe ideal-oracle query commutes with the matching full-state swap.
@@ -330,10 +329,10 @@ An exact coupling lemma converts disagreement-event mass to the challenge's real
 A graph coupling maps each real trace to one ideal trace and proves both marginals.
 A final generic theorem reduces the complete adaptive property to this trace transport and its Boolean change event.
 Lean also bounds this change event by any containing reached-collision event.
-The gate programmer now accepts an ordered schedule of selected gates.
-It preserves the shared invariant and keeps a prior collision flag.
-It proves that every reached programming step is fresh unless the final state records a collision.
-It also counts the selected slots exactly.
+The gate programmer accepts an ordered selected-gate schedule.
+It preserves the shared invariant and any prior collision flag.
+Every reached step is fresh unless the final state records a collision.
+It counts all selected slots exactly.
 A false-bit gate adds three fixed-key records, and a true-bit gate adds two.
 A collision-free schedule adds their sum, which is at most three times the gate count.
 The final oracle also satisfies every selected target after all later gate programs.
@@ -349,7 +348,7 @@ Fixed-key programming preserves the EncPRF and hash oracles.
 A satisfied linked schedule equals the full pipeline evaluation and returns all requested values.
 
 The complete row repairs the known perfect-correctness failure.
-The construction still lacks the circuit-programming transport for adaptive privacy.
+The construction still lacks an exact or bounded circuit-programming bridge for adaptive privacy.
 The worst selected branch uses the three hash slots.
 Its zero-query numerator is
 \[
