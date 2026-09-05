@@ -8,6 +8,7 @@ import Proof.Base7Termination
 import Proof.Gate
 import Proof.Lamport
 import Proof.Linking
+import Proof.ProgrammingBridge
 import Proof.RCBComplete
 import Proof.Security
 import Proof.Simulator
