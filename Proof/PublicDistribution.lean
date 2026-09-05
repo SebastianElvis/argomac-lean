@@ -121,6 +121,34 @@ theorem map_uniform_prod_of_uniform_fiber
   simp_rw [fiber]
   exact PMF.bind_const _ _
 
+/-- Equal uniform second-part laws give one uniform mixed law. -/
+theorem map_uniform_prod_of_uniform_snd_fiber
+    {First : Type uSource} {Second : Type uTarget} {Output : Type uSample}
+    [Fintype First] [Nonempty First] [Fintype Second] [Nonempty Second]
+    [Fintype Output] [Nonempty Output]
+    (function : First → Second → Output)
+    (fiber : ∀ first,
+      (PMF.uniformOfFintype Second).map (function first) =
+        PMF.uniformOfFintype Output) :
+    (PMF.uniformOfFintype (First × Second)).map
+        (fun sample => function sample.1 sample.2) =
+      PMF.uniformOfFintype Output := by
+  calc
+    (PMF.uniformOfFintype (First × Second)).map
+        (fun sample => function sample.1 sample.2) =
+      ((PMF.uniformOfFintype (First × Second)).map
+        (Equiv.prodComm First Second)).map
+          (fun sample => function sample.2 sample.1) := by
+        rw [PMF.map_comp]
+        rfl
+    _ = (PMF.uniformOfFintype (Second × First)).map
+        (fun sample => function sample.2 sample.1) := by
+      rw [map_uniformOfFintype_equivBetween]
+    _ = PMF.uniformOfFintype Output := by
+      exact map_uniform_prod_of_uniform_fiber
+        (First := Second) (Second := First) (Output := Output)
+        (fun second first => function first second) fiber
+
 /-- The fixed-key oracle is uniform in the complete garbling tape. -/
 theorem map_uniform_garblingRandomness_fixedKeyOracle
     (witness : Garbling.Randomness) :
@@ -255,6 +283,419 @@ theorem map_uniform_fixedDaviesMeyerBlocks
   rw [← PMF.map_comp]
   rw [map_uniform_fixedHashBlocks]
   exact map_uniformOfFintype_equivBetween (xorHashBlockTapeEquiv label)
+
+/-- This schedule reads the two pad permutations for one fixed gate. -/
+def padTapeSchedule (location : Pipeline.FixedKeyLocation)
+    (window : Nat) (label : Block) :
+    List (Pipeline.FixedKeyIndex × Block × Fin 2) :=
+  [
+    (fixedKeyIndex location window (.pad 0), label, 0),
+    (fixedKeyIndex location window (.pad 1), label, 1)
+  ]
+
+/-- The schedule tape contains the original two permutation outputs. -/
+theorem swapProgramPadTapeSchedule_snd
+    (oracle : PermutationOracle Pipeline.FixedKeyIndex Block)
+    (tape : Fin 2 → Block) (location : Pipeline.FixedKeyLocation)
+    (window : Nat) (label : Block) :
+    (swapProgramTapeScheduleEquiv (padTapeSchedule location window label)
+      (oracle, tape)).2 =
+      fun slot => oracle.permutation (fixedKeyIndex location window (.pad slot)) label := by
+  funext slot
+  fin_cases slot <;>
+    simp [padTapeSchedule, swapProgramTapeScheduleEquiv,
+      swapProgramTapeStepEquiv, Function.Involutive.toPerm,
+      swapProgramTapeStep, programPermutation, fixedKeyIndex]
+
+/-- Two fixed-gate permutation outputs are jointly uniform. -/
+theorem map_uniform_fixedPadBlocks
+    (location : Pipeline.FixedKeyLocation) (window : Nat) (label : Block) :
+    (PMF.uniformOfFintype
+      (PermutationOracle Pipeline.FixedKeyIndex Block)).map
+        (fun (oracle : PermutationOracle Pipeline.FixedKeyIndex Block) slot => oracle.permutation
+          (fixedKeyIndex location window (.pad slot)) label) =
+      PMF.uniformOfFintype (Fin 2 → Block) := by
+  let output : PermutationOracle Pipeline.FixedKeyIndex Block → Fin 2 → Block :=
+    fun oracle slot => oracle.permutation
+      (fixedKeyIndex location window (.pad slot)) label
+  rw [← map_uniform_prod_ignore_snd
+    (Second := Fin 2 → Block) output]
+  calc
+    (PMF.uniformOfFintype
+      (PermutationOracle Pipeline.FixedKeyIndex Block × (Fin 2 → Block))).map
+        (output ∘ Prod.fst) =
+      (PMF.uniformOfFintype
+        (PermutationOracle Pipeline.FixedKeyIndex Block × (Fin 2 → Block))).map
+          (fun sample => (swapProgramTapeScheduleEquiv
+            (padTapeSchedule location window label) sample).2) := by
+        congr 1
+        funext sample
+        exact (swapProgramPadTapeSchedule_snd sample.1 sample.2
+          location window label).symm
+    _ = PMF.uniformOfFintype (Fin 2 → Block) :=
+      map_uniform_swapProgramTapeSchedule_snd _
+
+/-- This map applies Davies--Meyer feed-forward to two blocks. -/
+def xorPadBlockTape (label : Block) (tape : Fin 2 → Block) : Fin 2 → Block :=
+  fun slot => tape slot ^^^ label
+
+theorem xorPadBlockTape_involutive (label : Block) :
+    Function.Involutive (xorPadBlockTape label) := by
+  intro tape
+  funext slot
+  simp only [xorPadBlockTape]
+  rw [BitVec.xor_assoc, BitVec.xor_self, BitVec.xor_zero]
+
+/-- Davies--Meyer feed-forward is an equivalence on the two-block tape. -/
+def xorPadBlockTapeEquiv (label : Block) :
+    (Fin 2 → Block) ≃ (Fin 2 → Block) :=
+  (xorPadBlockTape_involutive label).toPerm
+
+/-- Two fixed-gate Davies--Meyer pad blocks are jointly uniform. -/
+theorem map_uniform_fixedDaviesMeyerPadBlocks
+    (location : Pipeline.FixedKeyLocation) (window : Nat) (label : Block) :
+    (PMF.uniformOfFintype
+      (PermutationOracle Pipeline.FixedKeyIndex Block)).map
+        (fun (oracle : PermutationOracle Pipeline.FixedKeyIndex Block) slot =>
+          oracle.permutation (fixedKeyIndex location window (.pad slot)) label ^^^ label) =
+      PMF.uniformOfFintype (Fin 2 → Block) := by
+  let output : PermutationOracle Pipeline.FixedKeyIndex Block → Fin 2 → Block :=
+    fun oracle slot => oracle.permutation
+      (fixedKeyIndex location window (.pad slot)) label
+  rw [show (fun (oracle : PermutationOracle Pipeline.FixedKeyIndex Block) slot =>
+      oracle.permutation (fixedKeyIndex location window (.pad slot)) label ^^^ label) =
+      xorPadBlockTape label ∘ output from rfl]
+  rw [← PMF.map_comp]
+  rw [map_uniform_fixedPadBlocks]
+  exact map_uniformOfFintype_equivBetween (xorPadBlockTapeEquiv label)
+
+/-- This map splits one ciphertext into its two blocks. -/
+def splitCiphertextBlocks (value : BitAdaptor.Ciphertext)
+    (index : Fin 2) : Block :=
+  value.extractLsb' (index.val * 128) 128
+
+/-- This map joins two blocks into one ciphertext. -/
+def ciphertextBlocksValue (blocks : Fin 2 → Block) : BitAdaptor.Ciphertext :=
+  blocks 1 ++ blocks 0
+
+theorem splitCiphertextBlocks_value (value : BitAdaptor.Ciphertext) :
+    ciphertextBlocksValue (splitCiphertextBlocks value) = value := by
+  simp only [ciphertextBlocksValue, splitCiphertextBlocks]
+  change value.extractLsb' 128 128 ++ value.extractLsb' 0 128 = value
+  rw [BitVec.extractLsb'_append_extractLsb'_eq_extractLsb'
+    (by decide : 128 = 0 + 128)]
+  simp
+
+theorem splitCiphertextBlocks_ciphertextBlocksValue
+    (blocks : Fin 2 → Block) :
+    splitCiphertextBlocks (ciphertextBlocksValue blocks) = blocks := by
+  funext index
+  fin_cases index
+  · simp only [splitCiphertextBlocks, ciphertextBlocksValue]
+    rw [BitVec.extractLsb'_append_eq_of_add_le (by decide)]
+    simp
+  · simp only [splitCiphertextBlocks, ciphertextBlocksValue]
+    rw [BitVec.extractLsb'_append_eq_of_le (by decide)]
+    simp
+
+/-- Two blocks and one 256-bit ciphertext contain the same bits. -/
+def ciphertextBlockEquiv :
+    BitAdaptor.Ciphertext ≃ (Fin 2 → Block) where
+  toFun := splitCiphertextBlocks
+  invFun := ciphertextBlocksValue
+  left_inv := splitCiphertextBlocks_value
+  right_inv := splitCiphertextBlocks_ciphertextBlocksValue
+
+/-- This type contains each 256-bit ciphertext. -/
+abbrev FullCiphertext := Fin (2 ^ 256)
+
+/-- A full ciphertext is exactly two fixed-key blocks. -/
+def fullCiphertextBlockEquiv : FullCiphertext ≃ (Fin 2 → Block) :=
+  BitVec.equivFin.symm.toEquiv.trans ciphertextBlockEquiv
+
+/-- This value is the complete Davies--Meyer pad for one fixed gate. -/
+def fixedDaviesMeyerPadLift (location : Pipeline.FixedKeyLocation)
+    (window : Nat) (label : Block)
+    (oracle : PermutationOracle Pipeline.FixedKeyIndex Block) : FullCiphertext :=
+  BitVec.equivFin (BitAdaptor.padBytes
+    (Pipeline.fixedKeyPermutations oracle location window) label)
+
+theorem fixedDaviesMeyerPadLift_eq
+    (location : Pipeline.FixedKeyLocation) (window : Nat) (label : Block)
+    (oracle : PermutationOracle Pipeline.FixedKeyIndex Block) :
+    fixedDaviesMeyerPadLift location window label oracle =
+      fullCiphertextBlockEquiv.symm
+        (fun slot => oracle.permutation
+          (fixedKeyIndex location window (.pad slot)) label ^^^ label) := by
+  rfl
+
+/-- One fixed gate has an exact uniform 256-bit Davies--Meyer pad. -/
+theorem map_uniform_fixedDaviesMeyerPadLift
+    (location : Pipeline.FixedKeyLocation) (window : Nat) (label : Block) :
+    (PMF.uniformOfFintype
+      (PermutationOracle Pipeline.FixedKeyIndex Block)).map
+        (fixedDaviesMeyerPadLift location window label) =
+      PMF.uniformOfFintype FullCiphertext := by
+  rw [show fixedDaviesMeyerPadLift location window label =
+      fullCiphertextBlockEquiv.symm ∘
+        (fun (oracle : PermutationOracle Pipeline.FixedKeyIndex Block) slot =>
+          oracle.permutation (fixedKeyIndex location window (.pad slot)) label ^^^ label) by
+        funext oracle
+        exact fixedDaviesMeyerPadLift_eq location window label oracle]
+  rw [← PMF.map_comp]
+  rw [map_uniform_fixedDaviesMeyerPadBlocks]
+  exact map_uniformOfFintype_equivBetween fullCiphertextBlockEquiv.symm
+
+/-- XOR by one fixed ciphertext is an involution. -/
+def xorCiphertext (mask : BitAdaptor.Ciphertext)
+    (value : BitAdaptor.Ciphertext) : BitAdaptor.Ciphertext :=
+  value ^^^ mask
+
+theorem xorCiphertext_involutive (mask : BitAdaptor.Ciphertext) :
+    Function.Involutive (xorCiphertext mask) := by
+  intro value
+  simp only [xorCiphertext]
+  rw [BitVec.xor_assoc, BitVec.xor_self, BitVec.xor_zero]
+
+/-- XOR by one fixed ciphertext is an equivalence. -/
+def xorCiphertextEquiv (mask : BitAdaptor.Ciphertext) :
+    BitAdaptor.Ciphertext ≃ BitAdaptor.Ciphertext :=
+  (xorCiphertext_involutive mask).toPerm
+
+/-- XOR by one fixed ciphertext is an equivalence on its finite index. -/
+def xorFullCiphertextEquiv (mask : BitAdaptor.Ciphertext) :
+    FullCiphertext ≃ FullCiphertext :=
+  (BitVec.equivFin.symm.toEquiv.trans (xorCiphertextEquiv mask)).trans
+    BitVec.equivFin.toEquiv
+
+/-- This value is one real encrypted field row. -/
+def fixedEncryptedFieldLift (location : Pipeline.FixedKeyLocation)
+    (window : Nat) (label : Block) (message : BaseField)
+    (oracle : PermutationOracle Pipeline.FixedKeyIndex Block) : FullCiphertext :=
+  BitVec.equivFin
+    ((Pipeline.fixedKeyWindow oracle location window).encrypt label message)
+
+theorem fixedEncryptedFieldLift_eq
+    (location : Pipeline.FixedKeyLocation) (window : Nat) (label : Block)
+    (message : BaseField)
+    (oracle : PermutationOracle Pipeline.FixedKeyIndex Block) :
+    fixedEncryptedFieldLift location window label message oracle =
+      xorFullCiphertextEquiv (BitAdaptor.fieldBytes message)
+        (fixedDaviesMeyerPadLift location window label oracle) := by
+  rfl
+
+/-- One fixed real encrypted field row is exactly uniform on 256 bits. -/
+theorem map_uniform_fixedEncryptedFieldLift
+    (location : Pipeline.FixedKeyLocation) (window : Nat) (label : Block)
+    (message : BaseField) :
+    (PMF.uniformOfFintype
+      (PermutationOracle Pipeline.FixedKeyIndex Block)).map
+        (fixedEncryptedFieldLift location window label message) =
+      PMF.uniformOfFintype FullCiphertext := by
+  rw [show fixedEncryptedFieldLift location window label message =
+      xorFullCiphertextEquiv (BitAdaptor.fieldBytes message) ∘
+        fixedDaviesMeyerPadLift location window label by
+      funext oracle
+      exact fixedEncryptedFieldLift_eq location window label message oracle]
+  rw [← PMF.map_comp]
+  rw [map_uniform_fixedDaviesMeyerPadLift]
+  exact map_uniformOfFintype_equivBetween
+    (xorFullCiphertextEquiv (BitAdaptor.fieldBytes message))
+
+/-- Pad extraction preserves every hash-permutation output. -/
+theorem swapProgramPadTapeSchedule_hash_apply
+    (oracle : PermutationOracle Pipeline.FixedKeyIndex Block)
+    (tape : Fin 2 → Block) (location : Pipeline.FixedKeyLocation)
+    (window : Nat) (padLabel hashLabel : Block) (slot : Fin 3) :
+    (swapProgramTapeScheduleEquiv (padTapeSchedule location window padLabel)
+      (oracle, tape)).1.permutation
+        (fixedKeyIndex location window (.hash slot)) hashLabel =
+      oracle.permutation (fixedKeyIndex location window (.hash slot)) hashLabel := by
+  fin_cases slot <;>
+    simp [padTapeSchedule, swapProgramTapeScheduleEquiv,
+      swapProgramTapeStepEquiv, Function.Involutive.toPerm,
+      swapProgramTapeStep, programPermutation, fixedKeyIndex]
+
+/-- Pad extraction preserves the hash-to-field result. -/
+theorem swapProgramPadTapeSchedule_hashToField
+    (oracle : PermutationOracle Pipeline.FixedKeyIndex Block)
+    (tape : Fin 2 → Block) (location : Pipeline.FixedKeyLocation)
+    (window : Nat) (padLabel hashLabel : Block) :
+    (Pipeline.fixedKeyWindow
+      (swapProgramTapeScheduleEquiv (padTapeSchedule location window padLabel)
+        (oracle, tape)).1 location window).hashToField hashLabel =
+      (Pipeline.fixedKeyWindow oracle location window).hashToField hashLabel := by
+  simp [Pipeline.fixedKeyWindow, BitAdaptor.fixedKeyOracle,
+    BitAdaptor.hashBytes, Pipeline.fixedKeyPermutations, padTapeSchedule,
+    swapProgramTapeScheduleEquiv, swapProgramTapeStepEquiv,
+    Function.Involutive.toPerm, swapProgramTapeStep, programPermutation,
+    fixedKeyIndex]
+
+/-- A separated pad tape encrypts one hash-dependent field value bijectively. -/
+def separatedEncryptedFieldEquiv
+    (oracle : PermutationOracle Pipeline.FixedKeyIndex Block)
+    (location : Pipeline.FixedKeyLocation) (window : Nat)
+    (falseLabel trueLabel : Block) (slope : BaseField) :
+    (Fin 2 → Block) ≃ FullCiphertext :=
+  ((xorPadBlockTapeEquiv trueLabel).trans fullCiphertextBlockEquiv.symm).trans
+    (xorFullCiphertextEquiv (BitAdaptor.fieldBytes
+      (slope + (Pipeline.fixedKeyWindow oracle location window).hashToField falseLabel)))
+
+/-- This map encrypts one field value from a separated oracle and pad tape. -/
+def separatedEncryptedFieldLift
+    (location : Pipeline.FixedKeyLocation) (window : Nat)
+    (falseLabel trueLabel : Block) (slope : BaseField)
+    (sample : PermutationOracle Pipeline.FixedKeyIndex Block × (Fin 2 → Block)) :
+    FullCiphertext :=
+  separatedEncryptedFieldEquiv sample.1 location window
+    falseLabel trueLabel slope sample.2
+
+/-- A separated hash-dependent field ciphertext is exactly uniform. -/
+theorem map_uniform_separatedEncryptedFieldLift
+    (location : Pipeline.FixedKeyLocation) (window : Nat)
+    (falseLabel trueLabel : Block) (slope : BaseField) :
+    (PMF.uniformOfFintype
+      (PermutationOracle Pipeline.FixedKeyIndex Block × (Fin 2 → Block))).map
+        (separatedEncryptedFieldLift location window falseLabel trueLabel slope) =
+      PMF.uniformOfFintype FullCiphertext := by
+  exact map_uniform_prod_of_uniform_snd_fiber
+    (Output := FullCiphertext)
+    (fun oracle tape => separatedEncryptedFieldLift location window
+      falseLabel trueLabel slope (oracle, tape))
+    (fun oracle => map_uniformOfFintype_equivBetween
+      (separatedEncryptedFieldEquiv oracle location window
+        falseLabel trueLabel slope))
+
+/-- Pad extraction maps one real true row to its separated form. -/
+theorem fixedBitAdaptorTrueRow_swap
+    (oracle : PermutationOracle Pipeline.FixedKeyIndex Block)
+    (tape : Fin 2 → Block) (location : Pipeline.FixedKeyLocation)
+    (window : Nat) (key : BitAdaptor.Key) (slope : BaseField) :
+    BitVec.equivFin
+        (BitAdaptor.garble (Pipeline.fixedKeyWindow oracle location window)
+          slope key).1.trueRow =
+      separatedEncryptedFieldLift location window key.falseLabel
+        key.trueLabel slope
+        (swapProgramTapeScheduleEquiv
+          (padTapeSchedule location window key.trueLabel) (oracle, tape)) := by
+  simp only [separatedEncryptedFieldLift,
+    separatedEncryptedFieldEquiv, Equiv.trans_apply,
+    xorPadBlockTapeEquiv, xorFullCiphertextEquiv, xorCiphertextEquiv,
+    Function.Involutive.toPerm, BitAdaptor.garble]
+  rw [swapProgramPadTapeSchedule_snd]
+  rw [swapProgramPadTapeSchedule_hashToField]
+  rfl
+
+/-- This value is the real ciphertext row of one bit adaptor. -/
+def realBitAdaptorTrueRowLift
+    (location : Pipeline.FixedKeyLocation) (window : Nat)
+    (key : BitAdaptor.Key) (slope : BaseField)
+    (oracle : PermutationOracle Pipeline.FixedKeyIndex Block) : FullCiphertext :=
+  BitVec.equivFin
+    (BitAdaptor.garble (Pipeline.fixedKeyWindow oracle location window)
+      slope key).1.trueRow
+
+theorem realBitAdaptorTrueRowLift_eq_separated
+    (location : Pipeline.FixedKeyLocation) (window : Nat)
+    (key : BitAdaptor.Key) (slope : BaseField) :
+    realBitAdaptorTrueRowLift location window key slope ∘ Prod.fst =
+      separatedEncryptedFieldLift location window key.falseLabel
+        key.trueLabel slope ∘
+          swapProgramTapeScheduleEquiv
+            (padTapeSchedule location window key.trueLabel) := by
+  funext sample
+  exact fixedBitAdaptorTrueRow_swap sample.1 sample.2
+    location window key slope
+
+/-- One real bit-adaptor ciphertext row is exactly uniform on 256 bits. -/
+theorem map_uniform_realBitAdaptorTrueRowLift
+    (location : Pipeline.FixedKeyLocation) (window : Nat)
+    (key : BitAdaptor.Key) (slope : BaseField) :
+    (PMF.uniformOfFintype
+      (PermutationOracle Pipeline.FixedKeyIndex Block)).map
+        (realBitAdaptorTrueRowLift location window key slope) =
+      PMF.uniformOfFintype FullCiphertext := by
+  let output : PermutationOracle Pipeline.FixedKeyIndex Block → FullCiphertext :=
+    realBitAdaptorTrueRowLift location window key slope
+  rw [← map_uniform_prod_ignore_snd
+    (Second := Fin 2 → Block) output]
+  change (PMF.uniformOfFintype
+      (PermutationOracle Pipeline.FixedKeyIndex Block × (Fin 2 → Block))).map
+        (realBitAdaptorTrueRowLift location window key slope ∘ Prod.fst) = _
+  rw [realBitAdaptorTrueRowLift_eq_separated]
+  calc
+    (PMF.uniformOfFintype
+        (PermutationOracle Pipeline.FixedKeyIndex Block × (Fin 2 → Block))).map
+          (separatedEncryptedFieldLift location window key.falseLabel
+            key.trueLabel slope ∘
+              swapProgramTapeScheduleEquiv
+                (padTapeSchedule location window key.trueLabel)) =
+      ((PMF.uniformOfFintype
+        (PermutationOracle Pipeline.FixedKeyIndex Block × (Fin 2 → Block))).map
+          (swapProgramTapeScheduleEquiv
+            (padTapeSchedule location window key.trueLabel))).map
+          (separatedEncryptedFieldLift location window key.falseLabel
+            key.trueLabel slope) := by rw [PMF.map_comp]
+    _ = (PMF.uniformOfFintype
+        (PermutationOracle Pipeline.FixedKeyIndex Block × (Fin 2 → Block))).map
+          (separatedEncryptedFieldLift location window key.falseLabel
+            key.trueLabel slope) := by
+      rw [map_uniform_swapProgramTapeSchedule]
+    _ = PMF.uniformOfFintype FullCiphertext :=
+      map_uniform_separatedEncryptedFieldLift
+        location window key.falseLabel key.trueLabel slope
+
+/-- A real row stays uniform when its key and slope depend on the rest tape. -/
+theorem map_uniform_garblingRandomness_dependentRealBitAdaptorTrueRowLift
+    (witness : Garbling.Randomness)
+    (location : GarblingRandomnessRest → Pipeline.FixedKeyLocation)
+    (window : GarblingRandomnessRest → Nat)
+    (key : GarblingRandomnessRest → BitAdaptor.Key)
+    (slope : GarblingRandomnessRest → BaseField) :
+    letI : Nonempty Garbling.Randomness := ⟨witness⟩
+    (PMF.uniformOfFintype Garbling.Randomness).map
+        (fun randomness =>
+          let rest := garblingRandomnessRest randomness
+          realBitAdaptorTrueRowLift (location rest) (window rest)
+            (key rest) (slope rest) randomness.fixedKeyOracle) =
+      PMF.uniformOfFintype FullCiphertext := by
+  letI : Nonempty Garbling.Randomness := ⟨witness⟩
+  letI : Nonempty GarblingRandomnessRest := ⟨garblingRandomnessRest witness⟩
+  rw [show (fun randomness : Garbling.Randomness =>
+      let rest := garblingRandomnessRest randomness
+      realBitAdaptorTrueRowLift (location rest) (window rest)
+        (key rest) (slope rest) randomness.fixedKeyOracle) =
+      (fun sample => realBitAdaptorTrueRowLift
+        (location sample.2) (window sample.2) (key sample.2)
+        (slope sample.2) sample.1) ∘ garblingRandomnessFixedOracleEquiv by rfl]
+  rw [← PMF.map_comp]
+  rw [map_uniformOfFintype_equivBetween]
+  exact map_uniform_prod_of_uniform_fiber
+    (First := PermutationOracle Pipeline.FixedKeyIndex Block)
+    (Second := GarblingRandomnessRest)
+    (Output := FullCiphertext)
+    (fun oracle rest => realBitAdaptorTrueRowLift
+      (location rest) (window rest) (key rest) (slope rest) oracle)
+    (fun rest => map_uniform_realBitAdaptorTrueRowLift
+      (location rest) (window rest) (key rest) (slope rest))
+
+/-- The security tape gives every rest-dependent real row a uniform marginal. -/
+theorem map_randomTape_dependentRealBitAdaptorTrueRowLift
+    (witness : Garbling.Randomness) (parameter : Nat)
+    (location : GarblingRandomnessRest → Pipeline.FixedKeyLocation)
+    (window : GarblingRandomnessRest → Nat)
+    (key : GarblingRandomnessRest → BitAdaptor.Key)
+    (slope : GarblingRandomnessRest → BaseField) :
+    (randomTape witness parameter).map
+        (fun randomness =>
+          let rest := garblingRandomnessRest randomness
+          realBitAdaptorTrueRowLift (location rest) (window rest)
+            (key rest) (slope rest) randomness.fixedKeyOracle) =
+      PMF.uniformOfFintype FullCiphertext := by
+  letI : Nonempty Garbling.Randomness := ⟨witness⟩
+  rw [randomTape]
+  exact map_uniform_garblingRandomness_dependentRealBitAdaptorTrueRowLift
+    witness location window key slope
 
 /-- A finite union has at most the sum of its local event bounds. -/
 theorem finiteBadEventUnionMass_le

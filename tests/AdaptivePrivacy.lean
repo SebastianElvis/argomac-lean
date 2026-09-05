@@ -278,6 +278,10 @@ theorem hashLiftRoundingArithmeticHas100Bits :
 #print axioms ArgoMAC.Security.biquadraticGarbleY_coefficients
 #print axioms ArgoMAC.Security.map_uniform_zCoefficientTransport
 #print axioms ArgoMAC.Security.biquadraticGarbleZ_coefficients
+#print axioms ArgoMAC.Security.map_uniform_fixedDaviesMeyerPadBlocks
+#print axioms ArgoMAC.Security.map_uniform_fixedEncryptedFieldLift
+#print axioms ArgoMAC.Security.map_uniform_realBitAdaptorTrueRowLift
+#print axioms ArgoMAC.Security.map_randomTape_dependentRealBitAdaptorTrueRowLift
 #print axioms ArgoMAC.Security.map_uniform_goodHashLiftEquiv
 #print axioms ArgoMAC.Security.map_uniform_goodHashLiftEquiv_symm
 #print axioms ArgoMAC.Security.goodHashLiftEquiv_fst
