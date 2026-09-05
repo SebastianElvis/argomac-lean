@@ -391,6 +391,8 @@ Thus, mixed selected bits stay below the three-hash bucket budget.
 The semantic reduction must still condition on the selected branch.
 A companion Kriterion change closes the challenge interface defects.
 It makes \texttt{Kriterion.Solution} a closed dependent bundle.
+It quantifies every proof over the BN254 field and group certificates, which remain declared challenge assumptions.
+The certificate-free benchmark garbler has a required equality to the proved scheme garbler.
 It also defines \texttt{Kriterion.Benchmark.garble} at a fixed scalar, security parameter, and seed.
 The security game now samples the complete finite random tape uniformly.
 The fixed 256-bit seed selects only the reproducible benchmark tape.
