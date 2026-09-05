@@ -13,6 +13,7 @@ import Proof.Lamport
 import Proof.Linking
 import Proof.ProgrammingBridge
 import Proof.PublicSample
+import Proof.PublicDistribution
 import Proof.RCBComplete
 import Proof.Security
 import Proof.Simulator

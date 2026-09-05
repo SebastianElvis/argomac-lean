@@ -257,3 +257,8 @@ theorem hashLiftRoundingArithmeticHas100Bits :
 #print axioms ArgoMAC.Security.recordGateConstructionQueries_preservesInvariant
 #print axioms ArgoMAC.Security.recordGateConstructionQueries_length
 #print axioms ArgoMAC.Security.recordGateConstructionQueries_origin
+#print axioms ArgoMAC.Security.map_uniformOfFintype_equivBetween
+#print axioms ArgoMAC.Security.digitBitsK_independentOfSlope
+#print axioms ArgoMAC.Security.map_uniform_curveCoefficientTransport
+#print axioms ArgoMAC.Security.curveGarble_coefficients
+#print axioms ArgoMAC.Security.map_uniform_xCoefficientTransport
