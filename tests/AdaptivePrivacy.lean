@@ -282,6 +282,10 @@ theorem hashLiftRoundingArithmeticHas100Bits :
 #print axioms ArgoMAC.Security.map_uniform_fixedEncryptedFieldLift
 #print axioms ArgoMAC.Security.map_uniform_realBitAdaptorTrueRowLift
 #print axioms ArgoMAC.Security.map_randomTape_dependentRealBitAdaptorTrueRowLift
+#print axioms ArgoMAC.Security.map_uniform_digitOffset
+#print axioms ArgoMAC.Security.map_uniform_twoGoodHashDigitOffsetSum
+#print axioms ArgoMAC.Security.fixedHashToField_eq_goodResidue
+#print axioms ArgoMAC.Security.biquadraticZeroPad_eq_goodHashSum
 #print axioms ArgoMAC.Security.map_uniform_goodHashLiftEquiv
 #print axioms ArgoMAC.Security.map_uniform_goodHashLiftEquiv_symm
 #print axioms ArgoMAC.Security.goodHashLiftEquiv_fst

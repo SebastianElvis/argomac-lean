@@ -404,12 +404,18 @@ Thus, the real plaintext can contain its hash-to-field offset.
 Davies--Meyer feed-forward, block joining, and XOR by the encoded field value are finite equivalences.
 The true row is exactly uniform on 256 bits.
 A finite mixture permits keys and slopes that depend on all non-fixed-oracle randomness.
+Lean now proves the good-event law for the actual zero pad.
+One finite product equivalence exposes each accepted hash lift as its exact residue and quotient.
+The low digit has coefficient one, so its residue is an additive pivot.
+Thus, a uniform accepted-residue vector gives an exact uniform digit offset after any fixed translation.
+The actual good 	exttt{y10} and 	exttt{x9} hash vectors give the two real offsets.
+Their sum is the real zero pad.
 The next proof must connect the suffix complement to one complete public-table transport.
-It must also prove the zero-pad law and the joint law of all ciphertext rows.
+It must prove the joint law of the zero pad, all ciphertext rows, and the retained oracle.
 
 The complete row repairs the known perfect-correctness failure.
 The generic bounded bridge is complete.
-The construction still lacks the joint distributional hop for the RCB zero-pad masks and ciphertext rows.
+The construction still lacks the joint distributional hop for the RCB zero pad and ciphertext rows.
 It also lacks the final adaptive collision bound for that hop.
 The worst selected branch uses the three hash slots.
 Its zero-query numerator is

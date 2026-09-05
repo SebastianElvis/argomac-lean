@@ -722,6 +722,124 @@ def digitPublicOffset (windows : Nat → BitAdaptor.FixedKeyOracle)
     (key : CoordinateMacKey) : BaseField :=
   DigitAdaptor.bitsK (DigitAdaptor.garble windows 0 key).2
 
+/-- The low value is an additive pivot for one 254-bit digit offset. -/
+def digitOffsetPairTransport
+    (sample : BaseField × (Fin 253 → BaseField)) :
+    BaseField × (Fin 253 → BaseField) :=
+  (2 * DigitAdaptor.fromBits sample.2 + sample.1, sample.2)
+
+/-- This map recovers the low value from one digit offset. -/
+def digitOffsetPairTransportInverse
+    (sample : BaseField × (Fin 253 → BaseField)) :
+    BaseField × (Fin 253 → BaseField) :=
+  (sample.1 - 2 * DigitAdaptor.fromBits sample.2, sample.2)
+
+theorem digitOffsetPairTransport_leftInverse :
+    Function.LeftInverse digitOffsetPairTransportInverse
+      digitOffsetPairTransport := by
+  intro sample
+  cases sample
+  simp only [digitOffsetPairTransportInverse, digitOffsetPairTransport]
+  apply Prod.ext
+  · simp only
+    ring
+  · rfl
+
+theorem digitOffsetPairTransport_rightInverse :
+    Function.RightInverse digitOffsetPairTransportInverse
+      digitOffsetPairTransport := by
+  intro sample
+  cases sample
+  simp only [digitOffsetPairTransportInverse, digitOffsetPairTransport]
+  apply Prod.ext
+  · simp only
+    ring
+  · rfl
+
+/-- One digit offset and its tail are equivalent to all 254 values. -/
+def digitOffsetPairEquiv :
+    (BaseField × (Fin 253 → BaseField)) ≃
+      (BaseField × (Fin 253 → BaseField)) where
+  toFun := digitOffsetPairTransport
+  invFun := digitOffsetPairTransportInverse
+  left_inv := digitOffsetPairTransport_leftInverse
+  right_inv := digitOffsetPairTransport_rightInverse
+
+/-- This equivalence exposes one digit offset and keeps its tail. -/
+def digitOffsetVectorEquiv :
+    (Fin coordinateBitCount → BaseField) ≃
+      (BaseField × (Fin 253 → BaseField)) :=
+  (Fin.insertNthEquiv (fun _ : Fin coordinateBitCount => BaseField) 0).symm.trans
+    digitOffsetPairEquiv
+
+set_option maxRecDepth 100000 in
+theorem digitOffsetVectorEquiv_fst
+    (values : Fin coordinateBitCount → BaseField) :
+    (digitOffsetVectorEquiv values).1 = DigitAdaptor.fromBits values := by
+  change 2 * DigitAdaptor.fromBits (fun index : Fin 253 => values index.succ) +
+    values ⟨0, by decide⟩ = DigitAdaptor.fromBits values
+  rw [DigitAdaptor.fromBits, Fin.foldr_succ]
+  rfl
+
+/-- A uniform vector gives an exact uniform digit offset. -/
+theorem map_uniform_digitOffset :
+    (PMF.uniformOfFintype (Fin coordinateBitCount → BaseField)).map
+        DigitAdaptor.fromBits =
+      PMF.uniformOfFintype BaseField := by
+  rw [show DigitAdaptor.fromBits = Prod.fst ∘ digitOffsetVectorEquiv by
+    funext values
+    exact (digitOffsetVectorEquiv_fst values).symm]
+  rw [← PMF.map_comp]
+  rw [map_uniformOfFintype_equivBetween]
+  exact map_uniform_prod_fst
+
+/-- Addition by one fixed field value is an equivalence. -/
+def addFieldEquiv (offset : BaseField) : BaseField ≃ BaseField where
+  toFun value := value + offset
+  invFun value := value - offset
+  left_inv := by intro value; ring
+  right_inv := by intro value; ring
+
+/-- Adding a fixed value preserves a uniform digit offset. -/
+theorem map_uniform_digitOffset_add (offset : BaseField) :
+    (PMF.uniformOfFintype (Fin coordinateBitCount → BaseField)).map
+        (fun values => DigitAdaptor.fromBits values + offset) =
+      PMF.uniformOfFintype BaseField := by
+  rw [show (fun values : Fin coordinateBitCount → BaseField =>
+      DigitAdaptor.fromBits values + offset) =
+      addFieldEquiv offset ∘ DigitAdaptor.fromBits from rfl]
+  rw [← PMF.map_comp]
+  rw [map_uniform_digitOffset]
+  exact map_uniformOfFintype_equivBetween (addFieldEquiv offset)
+
+/-- Two independent digit-offset vectors give one uniform zero pad. -/
+theorem map_uniform_twoDigitOffsetSum :
+    (PMF.uniformOfFintype
+      ((Fin coordinateBitCount → BaseField) ×
+        (Fin coordinateBitCount → BaseField))).map
+        (fun sample => DigitAdaptor.fromBits sample.1 +
+          DigitAdaptor.fromBits sample.2) =
+      PMF.uniformOfFintype BaseField := by
+  exact map_uniform_prod_of_uniform_fiber
+    (First := Fin coordinateBitCount → BaseField)
+    (Second := Fin coordinateBitCount → BaseField)
+    (Output := BaseField)
+    (fun first second => DigitAdaptor.fromBits first +
+      DigitAdaptor.fromBits second)
+    (fun second => map_uniform_digitOffset_add
+      (DigitAdaptor.fromBits second))
+
+/-- The public digit offset is the weighted false-label hash vector. -/
+theorem digitPublicOffset_eq_fromBits
+    (windows : Nat → BitAdaptor.FixedKeyOracle)
+    (key : CoordinateMacKey) :
+    digitPublicOffset windows key =
+      DigitAdaptor.fromBits (fun index =>
+        (windows (BitAdaptor.fixedKeyWindowIndex index.val)).hashToField
+          (key.get index).falseLabel) := by
+  simp [digitPublicOffset, DigitAdaptor.bitsK, DigitAdaptor.garble,
+    BitAdaptor.garble]
+
 /-- This value is the last Y-adaptor offset in curve garbling. -/
 def curveY6Offset (r2 : BaseField) (oracles : CurveMembership.Oracles)
     (inputKey : InputMacKey) : BaseField :=
@@ -1284,6 +1402,184 @@ theorem map_uniform_fixedDaviesMeyerHashSplit
   rw [← PMF.map_comp]
   rw [map_uniform_fixedDaviesMeyerHashLift]
   exact map_uniform_hashLiftSplitEquiv
+
+set_option exponentiation.threshold 400 in
+/-- A good split exposes the real hash-to-field residue. -/
+theorem fixedHashToField_eq_goodResidue
+    (location : Pipeline.FixedKeyLocation) (window : Nat) (label : Block)
+    (oracle : PermutationOracle Pipeline.FixedKeyIndex Block)
+    (good : GoodHashLift)
+    (isGood : hashLiftSplitEquiv
+      (fixedDaviesMeyerHashLift location window label oracle) = Sum.inl good) :
+    (Pipeline.fixedKeyWindow oracle location window).hashToField label =
+      (goodHashLiftEquiv good).1 := by
+  rw [goodHashLiftEquiv_fst]
+  have valueEqual :
+      (fixedDaviesMeyerHashLift location window label oracle).val = good.val := by
+    have fullEqual :
+        fixedDaviesMeyerHashLift location window label oracle =
+          hashLiftSplitEquiv.symm (Sum.inl good) := by
+      calc
+        fixedDaviesMeyerHashLift location window label oracle =
+            hashLiftSplitEquiv.symm (hashLiftSplitEquiv
+              (fixedDaviesMeyerHashLift location window label oracle)) :=
+          (hashLiftSplitEquiv.symm_apply_apply _).symm
+        _ = hashLiftSplitEquiv.symm (Sum.inl good) := congrArg _ isGood
+    calc
+      (fixedDaviesMeyerHashLift location window label oracle).val =
+          (hashLiftSplitEquiv.symm (Sum.inl good)).val :=
+        congrArg Fin.val fullEqual
+      _ = good.val := by rfl
+  change ((BitAdaptor.hashBytes
+    (Pipeline.fixedKeyPermutations oracle location window) label).toNat : BaseField) =
+      (good.val : BaseField)
+  simpa [fixedDaviesMeyerHashLift] using
+    congrArg (fun value : Nat => (value : BaseField)) valueEqual
+
+/-- A function of product values equals a product of functions. -/
+def functionProdEquiv {Index First Second : Type} :
+    (Index → First × Second) ≃ ((Index → First) × (Index → Second)) where
+  toFun function := (fun index => (function index).1, fun index => (function index).2)
+  invFun pair index := (pair.1 index, pair.2 index)
+  left_inv function := by
+    funext index
+    exact Prod.ext rfl rfl
+  right_inv pair := by
+    apply Prod.ext <;> funext index <;> rfl
+
+/-- This equivalence exposes all accepted residues and quotients. -/
+def goodHashVectorEquiv :
+    (Fin coordinateBitCount → GoodHashLift) ≃
+      ((Fin coordinateBitCount → BaseField) ×
+        (Fin coordinateBitCount → HashLiftQuotient)) :=
+  (Equiv.piCongrRight fun _ : Fin coordinateBitCount => goodHashLiftEquiv).trans
+    functionProdEquiv
+
+theorem goodHashVectorEquiv_fst
+    (values : Fin coordinateBitCount → GoodHashLift) :
+    (goodHashVectorEquiv values).1 =
+      fun index => (goodHashLiftEquiv (values index)).1 := by
+  rfl
+
+/-- Accepted hash lifts give a uniform vector of field residues. -/
+theorem map_uniform_goodHashResidueVector :
+    (PMF.uniformOfFintype (Fin coordinateBitCount → GoodHashLift)).map
+        (fun values index => (goodHashLiftEquiv (values index)).1) =
+      PMF.uniformOfFintype (Fin coordinateBitCount → BaseField) := by
+  rw [show (fun values : Fin coordinateBitCount → GoodHashLift =>
+      fun index => (goodHashLiftEquiv (values index)).1) =
+      Prod.fst ∘ goodHashVectorEquiv by
+    funext values
+    exact (goodHashVectorEquiv_fst values).symm]
+  rw [← PMF.map_comp]
+  rw [map_uniformOfFintype_equivBetween]
+  exact map_uniform_prod_fst
+
+set_option maxRecDepth 100000 in
+/-- Accepted hash lifts give an exact uniform digit offset. -/
+theorem map_uniform_goodHashDigitOffset :
+    (PMF.uniformOfFintype (Fin coordinateBitCount → GoodHashLift)).map
+        (fun values => DigitAdaptor.fromBits fun index =>
+          (goodHashLiftEquiv (values index)).1) =
+      PMF.uniformOfFintype BaseField := by
+  rw [show (fun values : Fin coordinateBitCount → GoodHashLift =>
+      DigitAdaptor.fromBits fun index => (goodHashLiftEquiv (values index)).1) =
+      DigitAdaptor.fromBits ∘
+        (fun values index => (goodHashLiftEquiv (values index)).1) from rfl]
+  rw [← PMF.map_comp]
+  rw [map_uniform_goodHashResidueVector]
+  exact map_uniform_digitOffset
+
+set_option maxRecDepth 100000 in
+/-- Adding a fixed value preserves one accepted-hash digit offset. -/
+theorem map_uniform_goodHashDigitOffset_add (offset : BaseField) :
+    (PMF.uniformOfFintype (Fin coordinateBitCount → GoodHashLift)).map
+        (fun values =>
+          DigitAdaptor.fromBits (fun index =>
+            (goodHashLiftEquiv (values index)).1) + offset) =
+      PMF.uniformOfFintype BaseField := by
+  rw [show (fun values : Fin coordinateBitCount → GoodHashLift =>
+      DigitAdaptor.fromBits (fun index =>
+        (goodHashLiftEquiv (values index)).1) + offset) =
+      addFieldEquiv offset ∘
+        (fun values => DigitAdaptor.fromBits fun index =>
+          (goodHashLiftEquiv (values index)).1) from rfl]
+  rw [← PMF.map_comp]
+  rw [map_uniform_goodHashDigitOffset]
+  exact map_uniformOfFintype_equivBetween (addFieldEquiv offset)
+
+set_option maxRecDepth 100000 in
+/-- Two accepted-hash digit offsets give one uniform zero pad. -/
+theorem map_uniform_twoGoodHashDigitOffsetSum :
+    (PMF.uniformOfFintype
+      ((Fin coordinateBitCount → GoodHashLift) ×
+        (Fin coordinateBitCount → GoodHashLift))).map
+        (fun sample =>
+          DigitAdaptor.fromBits (fun index =>
+            (goodHashLiftEquiv (sample.1 index)).1) +
+          DigitAdaptor.fromBits (fun index =>
+            (goodHashLiftEquiv (sample.2 index)).1)) =
+      PMF.uniformOfFintype BaseField := by
+  exact map_uniform_prod_of_uniform_fiber
+    (First := Fin coordinateBitCount → GoodHashLift)
+    (Second := Fin coordinateBitCount → GoodHashLift)
+    (Output := BaseField)
+    (fun first second =>
+      DigitAdaptor.fromBits (fun index =>
+        (goodHashLiftEquiv (first index)).1) +
+      DigitAdaptor.fromBits (fun index =>
+        (goodHashLiftEquiv (second index)).1))
+    (fun second => map_uniform_goodHashDigitOffset_add
+      (DigitAdaptor.fromBits fun index =>
+        (goodHashLiftEquiv (second index)).1))
+
+set_option maxRecDepth 100000 in
+/-- Good gate hashes expose the real public digit offset. -/
+theorem digitPublicOffset_eq_goodHashOffset
+    (oracle : PermutationOracle Pipeline.FixedKeyIndex Block)
+    (location : Pipeline.FixedKeyLocation) (key : CoordinateMacKey)
+    (good : Fin coordinateBitCount → GoodHashLift)
+    (isGood : ∀ index, hashLiftSplitEquiv
+      (fixedDaviesMeyerHashLift location
+        (BitAdaptor.fixedKeyWindowIndex index.val)
+        (key.get index).falseLabel oracle) = Sum.inl (good index)) :
+    digitPublicOffset (fun window =>
+      Pipeline.fixedKeyWindow oracle location window) key =
+      DigitAdaptor.fromBits (fun index =>
+        (goodHashLiftEquiv (good index)).1) := by
+  rw [digitPublicOffset_eq_fromBits]
+  apply congrArg DigitAdaptor.fromBits
+  funext index
+  exact fixedHashToField_eq_goodResidue location
+    (BitAdaptor.fixedKeyWindowIndex index.val)
+    (key.get index).falseLabel oracle (good index) (isGood index)
+
+set_option maxRecDepth 100000 in
+/-- Good Y10 and X9 hashes expose the real RCB zero pad. -/
+theorem biquadraticZeroPad_eq_goodHashSum
+    (oracle : PermutationOracle Pipeline.FixedKeyIndex Block)
+    (output : Fin FieldMacToECMac.outputMacCount)
+    (coordinate : Pipeline.PointCoordinate) (inputKey : InputMacKey)
+    (yGood xGood : Fin coordinateBitCount → GoodHashLift)
+    (yIsGood : ∀ index, hashLiftSplitEquiv
+      (fixedDaviesMeyerHashLift (.point output coordinate .y10)
+        (BitAdaptor.fixedKeyWindowIndex index.val)
+        (inputKey.y.get index).falseLabel oracle) = Sum.inl (yGood index))
+    (xIsGood : ∀ index, hashLiftSplitEquiv
+      (fixedDaviesMeyerHashLift (.point output coordinate .x9)
+        (BitAdaptor.fixedKeyWindowIndex index.val)
+        (inputKey.x.get index).falseLabel oracle) = Sum.inl (xGood index)) :
+    biquadraticZeroPad (Pipeline.biquadraticOracles oracle output coordinate) inputKey =
+      DigitAdaptor.fromBits (fun index => (goodHashLiftEquiv (yGood index)).1) +
+        DigitAdaptor.fromBits (fun index => (goodHashLiftEquiv (xGood index)).1) := by
+  change digitPublicOffset (fun window => Pipeline.fixedKeyWindow oracle
+      (.point output coordinate .y10) window) inputKey.y +
+    digitPublicOffset (fun window => Pipeline.fixedKeyWindow oracle
+      (.point output coordinate .x9) window) inputKey.x = _
+  rw [digitPublicOffset_eq_goodHashOffset oracle
+    (.point output coordinate .y10) inputKey.y yGood yIsGood]
+  rw [digitPublicOffset_eq_goodHashOffset oracle
+    (.point output coordinate .x9) inputKey.x xGood xIsGood]
 
 /-- A gate hash stays uniform in the fixed-oracle product tape. -/
 theorem map_uniform_fixedOracleProduct_fixedDaviesMeyerHashSplit
