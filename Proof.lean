@@ -7,6 +7,7 @@ import Construction
 import Proof.Base7Termination
 import Proof.Distribution
 import Proof.Gate
+import Proof.IdealEncoding
 import Proof.Lamport
 import Proof.Linking
 import Proof.ProgrammingBridge
