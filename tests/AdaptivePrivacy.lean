@@ -262,3 +262,6 @@ theorem hashLiftRoundingArithmeticHas100Bits :
 #print axioms ArgoMAC.Security.map_uniform_curveCoefficientTransport
 #print axioms ArgoMAC.Security.curveGarble_coefficients
 #print axioms ArgoMAC.Security.map_uniform_xCoefficientTransport
+#print axioms ArgoMAC.Security.map_uniform_goodHashLiftEquiv
+#print axioms ArgoMAC.Security.hashLiftRemainder_lt_baseFieldModulus
+#print axioms ArgoMAC.Security.hashLiftFiberCount

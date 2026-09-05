@@ -237,6 +237,47 @@ theorem map_uniform_xCoefficientTransport (c0 c1 c2 c3 c5 : BaseField) :
   map_uniformOfFintype_equivBetween
     (xCoefficientEquiv c0 c1 c2 c3 c5)
 
+/-- This is the number of complete base-field fibers in 384 bits. -/
+def hashLiftQuotientCount : Nat :=
+  2 ^ 384 / baseFieldModulus
+
+/-- This type indexes the complete base-field fibers in 384 bits. -/
+abbrev HashLiftQuotient := Fin hashLiftQuotientCount
+
+/-- This type contains the 384-bit integers in complete field fibers. -/
+abbrev GoodHashLift := Fin (baseFieldModulus * hashLiftQuotientCount)
+
+set_option exponentiation.threshold 400 in
+instance hashLiftQuotientNonempty : Nonempty HashLiftQuotient :=
+  ⟨⟨0, by decide⟩⟩
+
+set_option exponentiation.threshold 400 in
+instance goodHashLiftNonempty : Nonempty GoodHashLift :=
+  ⟨⟨0, by decide⟩⟩
+
+/-- A good 384-bit value is one field value and one quotient value. -/
+def goodHashLiftEquiv : GoodHashLift ≃ BaseField × HashLiftQuotient :=
+  finProdFinEquiv.symm.trans
+    (Equiv.prodCongr (ZMod.finEquiv baseFieldModulus).toEquiv (Equiv.refl _))
+
+/-- Good hash lifts give an exact independent uniform field value. -/
+theorem map_uniform_goodHashLiftEquiv :
+    (PMF.uniformOfFintype GoodHashLift).map goodHashLiftEquiv =
+      PMF.uniformOfFintype (BaseField × HashLiftQuotient) :=
+  map_uniformOfFintype_equivBetween goodHashLiftEquiv
+
+/-- The rejected 384-bit suffix is smaller than one field fiber. -/
+theorem hashLiftRemainder_lt_baseFieldModulus :
+    2 ^ 384 % baseFieldModulus < baseFieldModulus := by
+  exact Nat.mod_lt _ (by decide)
+
+set_option exponentiation.threshold 400 in
+/-- Complete fibers and the rejected suffix partition all 384-bit values. -/
+theorem hashLiftFiberCount :
+    baseFieldModulus * hashLiftQuotientCount +
+        2 ^ 384 % baseFieldModulus = 2 ^ 384 := by
+  exact Nat.div_add_mod (2 ^ 384) baseFieldModulus
+
 end
 
 end Kriterion.ArgoMAC.Security
