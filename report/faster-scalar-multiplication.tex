@@ -44,22 +44,22 @@ A change without a specification change computes the same function with the same
 
 \begin{table}[h]
 \centering
-\small
+\footnotesize
 \begin{tabular}{llllr}
 \toprule
 \S & Change & Layer & Spec change & Measured effect \\
 \midrule
 \ref{sec:o1} & Shared garbling pass & Lean & No & Lean 989 to 160 ms \\
 \ref{sec:o2} & Four-corner 91-digit recoding & Lean, Rust & Yes: digit count & One fewer output row \\
-\ref{sec:o3} & Complete RCB addition & Lean, Rust & Yes: row law, decode & Correctness repair; Lean 160 to 231 ms \\
-\ref{sec:o4} & Parallel rows with fixed RNG streams & Rust & Yes: randomness derivation & Row 15.934 to 3.845 ms \\
+\ref{sec:o3} & Complete RCB addition & Lean, Rust & Yes: row law, decode & Correctness; Lean 160 to 231 ms \\
+\ref{sec:o4} & Parallel rows, fixed RNG streams & Rust & Yes: RNG streams & Row 15.934 to 3.845 ms \\
 \ref{sec:o5} & Fixed AES window view reuse & Rust & No & Within noise \\
 \ref{sec:o6} & SHA-256 prefix reuse & Rust & No & Row 3.841 to 3.754 ms \\
 \ref{sec:o7} & Specialized hash-to-field reduction & Rust & No & One worker 20.858 to 19.906 ms \\
 \ref{sec:o8} & Four-limb field XOR & Rust & No & Row 3.713 to 3.390 ms \\
 \ref{sec:o9} & Direct hash-block reduction & Rust & No & Row 3.507 to 3.351 ms \\
-\ref{sec:o10} & One-block KDF input & Rust & Yes: KDF layout, version 5 & Row 3.375 to 3.081 ms \\
-\ref{sec:o11} & Paired KDF digests & Rust & Yes: KDF layout, version 6 & Row 3.121 to 2.876 ms \\
+\ref{sec:o10} & One-block KDF input & Rust & Yes: KDF, version 5 & Row 3.375 to 3.081 ms \\
+\ref{sec:o11} & Paired KDF digests & Rust & Yes: KDF, version 6 & Row 3.121 to 2.876 ms \\
 \ref{sec:o12} & Noncanonical coordinate rejection & Rust & Yes: acceptance rule & None; hardening \\
 \bottomrule
 \end{tabular}
