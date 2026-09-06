@@ -369,6 +369,92 @@ theorem map_uniform_fixedDaviesMeyerPadBlocks
   rw [map_uniform_fixedPadBlocks]
   exact map_uniformOfFintype_equivBetween (xorPadBlockTapeEquiv label)
 
+/-- A distinct-index, distinct-slot schedule reads each entry at its slot. -/
+theorem swapProgramTapeSchedule_snd_reads
+    {Index : Type uIndex} {Slot : Type uSample}
+    [DecidableEq Index] [DecidableEq Slot]
+    (schedule : List (Index × Block × Slot))
+    (slotNodup : (schedule.map (fun entry => entry.2.2)).Nodup)
+    (indexNodup : (schedule.map (fun entry => entry.1)).Nodup)
+    (oracle : PermutationOracle Index Block) (tape : Slot → Block) :
+    (∀ entry ∈ schedule,
+        (swapProgramTapeScheduleEquiv schedule (oracle, tape)).2 entry.2.2 =
+          oracle.permutation entry.1 entry.2.1) ∧
+      (∀ slot, slot ∉ schedule.map (fun entry => entry.2.2) →
+        (swapProgramTapeScheduleEquiv schedule (oracle, tape)).2 slot = tape slot) := by
+  induction schedule generalizing oracle tape with
+  | nil => exact ⟨by simp, by intro slot _; rfl⟩
+  | cons head rest ih =>
+      have stepEq :
+          swapProgramTapeScheduleEquiv (head :: rest) (oracle, tape) =
+            swapProgramTapeScheduleEquiv rest
+              (swapProgramTapeStep head.1 head.2.1 head.2.2 (oracle, tape)) := rfl
+      rw [List.map_cons] at slotNodup indexNodup
+      obtain ⟨headSlotFresh, slotNodupRest⟩ := List.nodup_cons.mp slotNodup
+      obtain ⟨headIndexFresh, indexNodupRest⟩ := List.nodup_cons.mp indexNodup
+      set stepped := swapProgramTapeStep head.1 head.2.1 head.2.2 (oracle, tape)
+        with steppedDef
+      have steppedOracle : stepped.1 =
+          programPermutation oracle head.1 head.2.1 (tape head.2.2) := rfl
+      have steppedTape : stepped.2 =
+          Function.update tape head.2.2 (oracle.permutation head.1 head.2.1) := rfl
+      obtain ⟨readRest, unchangedRest⟩ :=
+        ih slotNodupRest indexNodupRest stepped.1 stepped.2
+      rw [stepEq]
+      refine ⟨?_, ?_⟩
+      · intro entry entryMem
+        rcases List.mem_cons.mp entryMem with headEq | restMem
+        · subst headEq
+          rw [unchangedRest entry.2.2 headSlotFresh, steppedTape,
+            Function.update_self]
+        · have indexNe : entry.1 ≠ head.1 := by
+            intro same
+            exact headIndexFresh (same ▸ List.mem_map_of_mem restMem)
+          rw [readRest entry restMem, steppedOracle]
+          simp [programPermutation, indexNe]
+      · intro slot slotFresh
+        rw [List.map_cons, List.mem_cons] at slotFresh
+        push_neg at slotFresh
+        obtain ⟨slotNeHead, slotFreshRest⟩ := slotFresh
+        rw [unchangedRest slot slotFreshRest, steppedTape,
+          Function.update_of_ne slotNeHead]
+
+/-- Reading distinct fixed-key indices gives jointly uniform blocks. -/
+theorem map_uniform_distinctReads
+    {Index : Type uIndex} [Fintype Index] [DecidableEq Index]
+    {n : Nat} (index : Fin n → Index) (input : Fin n → Block)
+    (hindex : Function.Injective index) :
+    (PMF.uniformOfFintype (PermutationOracle Index Block)).map
+        (fun oracle i => oracle.permutation (index i) (input i)) =
+      PMF.uniformOfFintype (Fin n → Block) := by
+  classical
+  let schedule : List (Index × Block × Fin n) :=
+    List.ofFn (fun i => (index i, input i, i))
+  have slotNodup : (schedule.map (fun entry => entry.2.2)).Nodup := by
+    simp only [schedule, List.map_ofFn]
+    exact List.nodup_ofFn.mpr fun a b h => h
+  have indexNodup : (schedule.map (fun entry => entry.1)).Nodup := by
+    simp only [schedule, List.map_ofFn]
+    exact List.nodup_ofFn.mpr hindex
+  let output : PermutationOracle Index Block → Fin n → Block :=
+    fun oracle i => oracle.permutation (index i) (input i)
+  rw [← map_uniform_prod_ignore_snd (Second := Fin n → Block) output]
+  calc
+    (PMF.uniformOfFintype
+      (PermutationOracle Index Block × (Fin n → Block))).map (output ∘ Prod.fst) =
+      (PMF.uniformOfFintype
+        (PermutationOracle Index Block × (Fin n → Block))).map
+          (fun sample => (swapProgramTapeScheduleEquiv schedule sample).2) := by
+        congr 1
+        funext sample
+        funext i
+        have entryMem : (index i, input i, i) ∈ schedule :=
+          List.mem_ofFn.mpr ⟨i, rfl⟩
+        exact ((swapProgramTapeSchedule_snd_reads schedule slotNodup indexNodup
+          sample.1 sample.2).1 (index i, input i, i) entryMem).symm
+    _ = PMF.uniformOfFintype (Fin n → Block) :=
+      map_uniform_swapProgramTapeSchedule_snd _
+
 /-- This schedule reads the three hash and two pad permutations for one gate. -/
 def hashPadTapeSchedule (location : Pipeline.FixedKeyLocation)
     (window : Nat) (label : Block) :
