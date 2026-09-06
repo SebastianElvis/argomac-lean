@@ -6,6 +6,9 @@ The paper source is https://github.com/babylonlabs-io/BaBe.latex/tree/e2dcf4d540
 
 import Construction.Garbling
 import Cryptography.Assumptions
+import Proof.BoundedBridge
+import Proof.PublicDistribution
+import Security.AdaptivePrivacy
 
 namespace Kriterion.ArgoMAC.Security
 
@@ -13,7 +16,8 @@ open GarbledCircuit
 open Cryptography
 open Cryptography.Assumptions
 
-universe uKey uCounter uCTPRFIndex uEncPRFIndex uHashInput uCPAAux
+universe uKey uCounter uCTPRFIndex uEncPRFIndex uHashInput uCPAAux uSample
+  uQuery uAnswer uResult uState
 
 /-- These are the standard assumptions in `thm:gc_opt_final`. -/
 abbrev BaBeAssumptions
@@ -29,11 +33,735 @@ abbrev BaBeAssumptions
 /-- The fixed AES block size in the paper is 128 bits. -/
 def blockBits : Nat := 128
 
+/-- The block type has exactly 2^128 values. -/
+theorem blockCard : Fintype.card Block = 2 ^ blockBits := by
+  calc
+    Fintype.card Block = Fintype.card (Fin (2 ^ 128)) :=
+      Fintype.card_congr BitVec.equivFin.toEquiv
+    _ = 2 ^ blockBits := by simp [blockBits]
+
+/-- One value has exact mass 2^-128 under the uniform block tape. -/
+theorem uniformBlockMass (value : Block) :
+    PMF.uniformOfFintype Block value =
+      Inv.inv (↑(2 ^ blockBits : Nat) : ENNReal) := by
+  rw [PMF.uniformOfFintype_apply, blockCard]
+
+/-- Two forbidden block values have this union-bound mass. -/
+theorem uniformBlockTwoPointUnionBound (first second : Block) :
+    PMF.uniformOfFintype Block first + PMF.uniformOfFintype Block second =
+      2 * Inv.inv (↑(2 ^ blockBits : Nat) : ENNReal) := by
+  rw [uniformBlockMass, uniformBlockMass]
+  ring
+
+/-- A finite forbidden set has its exact cardinality divided by 2^128 as mass. -/
+theorem uniformBlockFinsetMass (forbidden : Finset Block) :
+    (PMF.uniformOfFintype Block).toOuterMeasure (forbidden : Set Block) =
+      (forbidden.card : ENNReal) * Inv.inv (↑(2 ^ blockBits : Nat) : ENNReal) := by
+  rw [PMF.toOuterMeasure_uniformOfFintype_apply, blockCard]
+  simp [div_eq_mul_inv]
+
+/-- A set of at most `count` forbidden blocks has at most `count / 2^128` mass. -/
+theorem uniformBlockFinsetMass_le (forbidden : Finset Block) (count : Nat)
+    (cardBound : forbidden.card ≤ count) :
+    (PMF.uniformOfFintype Block).toOuterMeasure (forbidden : Set Block) ≤
+      (count : ENNReal) * Inv.inv (↑(2 ^ blockBits : Nat) : ENNReal) := by
+  rw [uniformBlockFinsetMass]
+  exact mul_le_mul_right' (by exact_mod_cast cardBound) _
+
+/-- The event for either of two forbidden blocks has at most `2 / 2^128` mass. -/
+theorem uniformBlockTwoPointEvent_le (first second : Block) :
+    (PMF.uniformOfFintype Block).toOuterMeasure
+        ({first, second} : Finset Block) ≤
+      2 * Inv.inv (↑(2 ^ blockBits : Nat) : ENNReal) := by
+  apply uniformBlockFinsetMass_le _ 2
+  exact Finset.card_le_two
+
+/-- A list of local forbidden sets has the sum of its per-step cardinality bounds. -/
+theorem uniformBlockFinsetMass_sum_le (forbidden : List (Finset Block)) (count : Nat)
+    (cardBound : ∀ current ∈ forbidden, current.card ≤ count) :
+    (forbidden.map fun current =>
+      (PMF.uniformOfFintype Block).toOuterMeasure (current : Set Block)).sum ≤
+      (forbidden.length * count : ENNReal) *
+        Inv.inv (↑(2 ^ blockBits : Nat) : ENNReal) := by
+  induction forbidden with
+  | nil => simp
+  | cons current tail inductionHypothesis =>
+      have currentBound := uniformBlockFinsetMass_le current count
+        (cardBound current (by simp))
+      have tailBound : ∀ next ∈ tail, next.card ≤ count := by
+        intro next member
+        exact cardBound next (by simp [member])
+      have remainingBound := inductionHypothesis tailBound
+      simp only [List.length_cons, Nat.cast_add, Nat.cast_one]
+      calc
+        (PMF.uniformOfFintype Block).toOuterMeasure (current : Set Block) +
+            (tail.map fun next =>
+              (PMF.uniformOfFintype Block).toOuterMeasure (next : Set Block)).sum ≤
+          (count : ENNReal) * Inv.inv (↑(2 ^ blockBits : Nat) : ENNReal) +
+            (tail.length * count : ENNReal) *
+              Inv.inv (↑(2 ^ blockBits : Nat) : ENNReal) :=
+          add_le_add currentBound remainingBound
+        _ = ((tail.length + 1) * count : ENNReal) *
+              Inv.inv (↑(2 ^ blockBits : Nat) : ENNReal) := by
+          ring
+
+/-- A reached trace has at most one local collision term for each budget unit. -/
+theorem oracleProgramTrace_collisionScheduleMass_le
+    {oracle : OracleSpec.{uQuery, uAnswer}} {Result : Type uResult}
+    {State : Type uState}
+    (handler : OracleHandler oracle State)
+    {budget : Nat} {program : OracleProgram oracle Result budget}
+    {state : State} {trace : List (oracle.Query × State)}
+    (reached : OracleProgramTrace handler program state trace)
+    (forbidden : oracle.Query × State → Finset Block) (count : Nat)
+    (cardBound : ∀ step ∈ trace, (forbidden step).card ≤ count) :
+    ((trace.map forbidden).map fun current =>
+      (PMF.uniformOfFintype Block).toOuterMeasure (current : Set Block)).sum ≤
+      (budget * count : ENNReal) *
+        Inv.inv (↑(2 ^ blockBits : Nat) : ENNReal) := by
+  have scheduleBound := uniformBlockFinsetMass_sum_le
+    (trace.map forbidden) count (by
+      intro current member
+      rcases List.mem_map.mp member with ⟨step, stepMember, rfl⟩
+      exact cardBound step stepMember)
+  have countBound : trace.length * count ≤ budget * count :=
+    Nat.mul_le_mul_right count reached.length_le
+  calc
+    ((trace.map forbidden).map fun current =>
+        (PMF.uniformOfFintype Block).toOuterMeasure (current : Set Block)).sum ≤
+      (trace.length * count : ENNReal) *
+        Inv.inv (↑(2 ^ blockBits : Nat) : ENNReal) := by
+      simpa using scheduleBound
+    _ ≤ (budget * count : ENNReal) *
+        Inv.inv (↑(2 ^ blockBits : Nat) : ENNReal) := by
+      apply mul_le_mul_right'
+      exact_mod_cast countBound
+
+/-- A Boolean coupling bounds advantage by its two disagreement outcomes. -/
+theorem advantage_map_prod_le_disagreement (joint : PMF (Bool × Bool)) :
+    advantage (joint.map Prod.fst) (joint.map Prod.snd) ≤
+      (joint (true, false)).toReal + (joint (false, true)).toReal := by
+  unfold advantage
+  simp only [PMF.map_apply]
+  simp only [ENNReal.tsum_prod']
+  simp only [tsum_bool]
+  norm_num
+  rw [ENNReal.toReal_add (joint.apply_ne_top _) (joint.apply_ne_top _),
+    ENNReal.toReal_add (joint.apply_ne_top _) (joint.apply_ne_top _)]
+  ring_nf
+  have trueFalseNonnegative : 0 ≤ (joint (true, false)).toReal := ENNReal.toReal_nonneg
+  have falseTrueNonnegative : 0 ≤ (joint (false, true)).toReal := ENNReal.toReal_nonneg
+  rw [abs_le]
+  constructor <;> linarith
+
+/-- This event contains the two Boolean outcomes where a coupling disagrees. -/
+def boolDisagreement : Set (Bool × Bool) :=
+  { output | output.1 ≠ output.2 }
+
+/-- The disagreement event has the sum of its two possible outcome masses. -/
+theorem boolDisagreement_mass (joint : PMF (Bool × Bool)) :
+    joint.toOuterMeasure boolDisagreement =
+      joint (true, false) + joint (false, true) := by
+  rw [PMF.toOuterMeasure_apply]
+  simp only [ENNReal.tsum_prod', tsum_bool]
+  norm_num [boolDisagreement, add_comm]
+
+/-- A Boolean coupling bounds advantage by the mass of its disagreement event. -/
+theorem advantage_map_prod_le_disagreementMass (joint : PMF (Bool × Bool)) :
+    advantage (joint.map Prod.fst) (joint.map Prod.snd) ≤
+      (joint.toOuterMeasure boolDisagreement).toReal := by
+  rw [boolDisagreement_mass,
+    ENNReal.toReal_add (joint.apply_ne_top _) (joint.apply_ne_top _)]
+  exact advantage_map_prod_le_disagreement joint
+
+/-- A coupling with bounded disagreement gives the same bound on game advantage. -/
+theorem advantage_le_of_coupling (first second : PMF Bool)
+    (joint : PMF (Bool × Bool)) (error : ENNReal)
+    (firstMarginal : joint.map Prod.fst = first)
+    (secondMarginal : joint.map Prod.snd = second)
+    (errorFinite : error ≠ ⊤)
+    (disagreementBound : joint.toOuterMeasure boolDisagreement ≤ error) :
+    advantage first second ≤ error.toReal := by
+  rw [← firstMarginal, ← secondMarginal]
+  exact (advantage_map_prod_le_disagreementMass joint).trans
+    (ENNReal.toReal_mono errorFinite disagreementBound)
+
+/-- A coupling of traced games bounds the advantage of their Boolean marginals. -/
+theorem advantage_le_of_tracedCoupling
+    {FirstTrace SecondTrace : Type uSample}
+    (firstTraced : PMF (Bool × FirstTrace))
+    (secondTraced : PMF (Bool × SecondTrace))
+    (first second : PMF Bool)
+    (joint : PMF ((Bool × FirstTrace) × (Bool × SecondTrace)))
+    (error : ENNReal)
+    (firstMarginal : joint.map Prod.fst = firstTraced)
+    (secondMarginal : joint.map Prod.snd = secondTraced)
+    (firstErase : firstTraced.map Prod.fst = first)
+    (secondErase : secondTraced.map Prod.fst = second)
+    (errorFinite : error ≠ ⊤)
+    (disagreementBound : joint.toOuterMeasure
+      { sample | sample.1.1 ≠ sample.2.1 } ≤ error) :
+    advantage first second ≤ error.toReal := by
+  let boolJoint : PMF (Bool × Bool) :=
+    joint.map fun sample => (sample.1.1, sample.2.1)
+  apply advantage_le_of_coupling first second boolJoint error
+  · calc
+      boolJoint.map Prod.fst = (joint.map Prod.fst).map Prod.fst := by
+        simp [boolJoint, PMF.map_comp, Function.comp_def]
+      _ = firstTraced.map Prod.fst := by rw [firstMarginal]
+      _ = first := firstErase
+  · calc
+      boolJoint.map Prod.snd = (joint.map Prod.snd).map Prod.fst := by
+        simp [boolJoint, PMF.map_comp, Function.comp_def]
+      _ = secondTraced.map Prod.fst := by rw [secondMarginal]
+      _ = second := secondErase
+  · exact errorFinite
+  · change (joint.map fun sample => (sample.1.1, sample.2.1)).toOuterMeasure
+        boolDisagreement ≤ error
+    rw [PMF.toOuterMeasure_map_apply]
+    exact disagreementBound
+
+/-- A bounded bridge coupling gives a bound on its result advantage. -/
+theorem advantage_runOracleProgramsBoundedBridgeTraceCoupling
+    {oracle : OracleSpec.{uQuery, uAnswer}}
+    {FirstResult MiddleResult StateOne StateTwo : Type uSample}
+    (handlerOne : OracleHandler oracle StateOne)
+    (handlerTwo : OracleHandler oracle StateTwo)
+    (related : StateOne → StateTwo → Prop)
+    (handlerRelated : ∀ query stateOne stateTwo, related stateOne stateTwo →
+      (handlerOne query stateOne).1 = (handlerTwo query stateTwo).1 ∧
+        related (handlerOne query stateOne).2 (handlerTwo query stateTwo).2)
+    {firstBudget secondBudget : Nat}
+    (first : OracleProgram oracle FirstResult firstBudget)
+    (bridgeOne : FirstResult → StateOne → PMF (MiddleResult × StateOne))
+    (bridgeTwo : FirstResult → StateTwo → PMF (MiddleResult × StateTwo))
+    (bridgeCoupling : FirstResult → (stateOne : StateOne) →
+      (stateTwo : StateTwo) → related stateOne stateTwo →
+        PMF (RelatedOrBadBridgeOutput MiddleResult StateOne StateTwo related))
+    (bridgeFst : ∀ result stateOne stateTwo statesRelated,
+      (bridgeCoupling result stateOne stateTwo statesRelated).map
+          RelatedOrBadBridgeOutput.first = bridgeOne result stateOne)
+    (bridgeSnd : ∀ result stateOne stateTwo statesRelated,
+      (bridgeCoupling result stateOne stateTwo statesRelated).map
+          RelatedOrBadBridgeOutput.second = bridgeTwo result stateTwo)
+    (second : FirstResult → MiddleResult →
+      OracleProgram oracle Bool secondBudget)
+    (stateOne : StateOne) (stateTwo : StateTwo)
+    (statesRelated : related stateOne stateTwo)
+    (error : ENNReal) (errorFinite : error ≠ ⊤)
+    (badBound :
+      (runOracleProgramsBoundedBridgeTraceCoupling handlerOne handlerTwo related
+        handlerRelated first bridgeCoupling second stateOne stateTwo
+        statesRelated).toOuterMeasure { output | output.2 = true } ≤ error) :
+    advantage
+        ((runOracleProgramsWithBridgeTrace handlerOne first bridgeOne second stateOne).map
+          Prod.fst)
+        ((runOracleProgramsWithBridgeTrace handlerTwo first bridgeTwo second stateTwo).map
+          Prod.fst) ≤
+      error.toReal := by
+  let flagged := runOracleProgramsBoundedBridgeTraceCoupling handlerOne handlerTwo related
+    handlerRelated first bridgeCoupling second stateOne stateTwo statesRelated
+  let joint := flagged.map Prod.fst
+  apply advantage_le_of_tracedCoupling
+    (runOracleProgramsWithBridgeTrace handlerOne first bridgeOne second stateOne)
+    (runOracleProgramsWithBridgeTrace handlerTwo first bridgeTwo second stateTwo)
+    ((runOracleProgramsWithBridgeTrace handlerOne first bridgeOne second stateOne).map
+      Prod.fst)
+    ((runOracleProgramsWithBridgeTrace handlerTwo first bridgeTwo second stateTwo).map
+      Prod.fst)
+    joint error
+  · calc
+      joint.map Prod.fst = flagged.map (fun output => output.1.1) := by
+        simp [joint, PMF.map_comp, Function.comp_def]
+      _ = runOracleProgramsWithBridgeTrace handlerOne first bridgeOne second stateOne := by
+        exact runOracleProgramsBoundedBridgeTraceCoupling_fst handlerOne handlerTwo related
+          handlerRelated first bridgeOne bridgeCoupling bridgeFst second stateOne stateTwo
+          statesRelated
+  · calc
+      joint.map Prod.snd = flagged.map (fun output => output.1.2) := by
+        simp [joint, PMF.map_comp, Function.comp_def]
+      _ = runOracleProgramsWithBridgeTrace handlerTwo first bridgeTwo second stateTwo := by
+        exact runOracleProgramsBoundedBridgeTraceCoupling_snd handlerOne handlerTwo related
+          handlerRelated first bridgeTwo bridgeCoupling bridgeSnd second stateOne stateTwo
+          statesRelated
+  · rfl
+  · rfl
+  · exact errorFinite
+  · change (flagged.map Prod.fst).toOuterMeasure
+        { sample | sample.1.1 ≠ sample.2.1 } ≤ error
+    rw [PMF.toOuterMeasure_map_apply]
+    exact (runOracleProgramsBoundedBridgeTraceCoupling_disagreement_le_bad
+      handlerOne handlerTwo related handlerRelated first bridgeCoupling second
+      stateOne stateTwo statesRelated).trans badBound
+
+/-- This coupling maps each first trace to one second trace. -/
+noncomputable def traceTransportCoupling
+    {FirstTrace SecondTrace : Type uSample}
+    (firstTraced : PMF (Bool × FirstTrace))
+    (transport : Bool × FirstTrace → Bool × SecondTrace) :
+    PMF ((Bool × FirstTrace) × (Bool × SecondTrace)) :=
+  firstTraced.map fun sample => (sample, transport sample)
+
+theorem traceTransportCoupling_fst
+    {FirstTrace SecondTrace : Type uSample}
+    (firstTraced : PMF (Bool × FirstTrace))
+    (transport : Bool × FirstTrace → Bool × SecondTrace) :
+    (traceTransportCoupling firstTraced transport).map Prod.fst = firstTraced := by
+  rw [traceTransportCoupling, PMF.map_comp]
+  simpa [Function.comp_def] using PMF.map_id firstTraced
+
+theorem traceTransportCoupling_snd
+    {FirstTrace SecondTrace : Type uSample}
+    (firstTraced : PMF (Bool × FirstTrace))
+    (transport : Bool × FirstTrace → Bool × SecondTrace) :
+    (traceTransportCoupling firstTraced transport).map Prod.snd =
+      firstTraced.map transport := by
+  simp [traceTransportCoupling, PMF.map_comp, Function.comp_def]
+
+theorem traceTransportCoupling_disagreement
+    {FirstTrace SecondTrace : Type uSample}
+    (firstTraced : PMF (Bool × FirstTrace))
+    (transport : Bool × FirstTrace → Bool × SecondTrace) :
+    (traceTransportCoupling firstTraced transport).toOuterMeasure
+        { sample | sample.1.1 ≠ sample.2.1 } =
+      firstTraced.toOuterMeasure
+        { sample | sample.1 ≠ (transport sample).1 } := by
+  rw [traceTransportCoupling, PMF.toOuterMeasure_map_apply]
+  rfl
+
+/-- A Boolean change event is bounded by any bad event that contains it. -/
+theorem traceTransport_changeMass_le_badMass
+    {FirstTrace SecondTrace : Type uSample}
+    (firstTraced : PMF (Bool × FirstTrace))
+    (transport : Bool × FirstTrace → Bool × SecondTrace)
+    (bad : Set (Bool × FirstTrace))
+    (changeImpliesBad : ∀ sample,
+      sample.1 ≠ (transport sample).1 → sample ∈ bad) :
+    firstTraced.toOuterMeasure
+        { sample | sample.1 ≠ (transport sample).1 } ≤
+      firstTraced.toOuterMeasure bad := by
+  apply firstTraced.toOuterMeasure.mono
+  intro sample changed
+  exact changeImpliesBad sample changed
+
+/-- A trace transport reduces the game bound to its Boolean change event. -/
+theorem advantage_le_of_traceTransport
+    {FirstTrace SecondTrace : Type uSample}
+    (firstTraced : PMF (Bool × FirstTrace))
+    (secondTraced : PMF (Bool × SecondTrace))
+    (first second : PMF Bool)
+    (transport : Bool × FirstTrace → Bool × SecondTrace)
+    (error : ENNReal)
+    (secondMap : firstTraced.map transport = secondTraced)
+    (firstErase : firstTraced.map Prod.fst = first)
+    (secondErase : secondTraced.map Prod.fst = second)
+    (errorFinite : error ≠ ⊤)
+    (changeBound : firstTraced.toOuterMeasure
+      { sample | sample.1 ≠ (transport sample).1 } ≤ error) :
+    advantage first second ≤ error.toReal := by
+  exact advantage_le_of_tracedCoupling firstTraced secondTraced first second
+    (traceTransportCoupling firstTraced transport) error
+    (traceTransportCoupling_fst firstTraced transport)
+    ((traceTransportCoupling_snd firstTraced transport).trans secondMap)
+    firstErase secondErase errorFinite
+    (by simpa [traceTransportCoupling_disagreement] using changeBound)
+
+/-- A trace transport and a containing bad event bound the game advantage. -/
+theorem advantage_le_of_traceTransport_badEvent
+    {FirstTrace SecondTrace : Type uSample}
+    (firstTraced : PMF (Bool × FirstTrace))
+    (secondTraced : PMF (Bool × SecondTrace))
+    (first second : PMF Bool)
+    (transport : Bool × FirstTrace → Bool × SecondTrace)
+    (bad : Set (Bool × FirstTrace))
+    (error : ENNReal)
+    (secondMap : firstTraced.map transport = secondTraced)
+    (firstErase : firstTraced.map Prod.fst = first)
+    (secondErase : secondTraced.map Prod.fst = second)
+    (errorFinite : error ≠ ⊤)
+    (changeImpliesBad : ∀ sample,
+      sample.1 ≠ (transport sample).1 → sample ∈ bad)
+    (badBound : firstTraced.toOuterMeasure bad ≤ error) :
+    advantage first second ≤ error.toReal := by
+  apply advantage_le_of_traceTransport firstTraced secondTraced first second
+    transport error secondMap firstErase secondErase errorFinite
+  exact (traceTransport_changeMass_le_badMass firstTraced transport bad
+    changeImpliesBad).trans badBound
+
+/-- This coupling runs two deterministic Boolean games on one common sample. -/
+noncomputable def deterministicBoolCoupling {Sample : Type uSample}
+    (source : PMF Sample) (first second : Sample → Bool) : PMF (Bool × Bool) :=
+  source.map fun sample => (first sample, second sample)
+
+theorem deterministicBoolCoupling_fst {Sample : Type uSample}
+    (source : PMF Sample) (first second : Sample → Bool) :
+    (deterministicBoolCoupling source first second).map Prod.fst = source.map first := by
+  simp [deterministicBoolCoupling, PMF.map_comp, Function.comp_def]
+
+theorem deterministicBoolCoupling_snd {Sample : Type uSample}
+    (source : PMF Sample) (first second : Sample → Bool) :
+    (deterministicBoolCoupling source first second).map Prod.snd = source.map second := by
+  simp [deterministicBoolCoupling, PMF.map_comp, Function.comp_def]
+
+theorem deterministicBoolCoupling_disagreement {Sample : Type uSample}
+    (source : PMF Sample) (first second : Sample → Bool) :
+    (deterministicBoolCoupling source first second).toOuterMeasure boolDisagreement =
+      source.toOuterMeasure { sample | first sample ≠ second sample } := by
+  rw [deterministicBoolCoupling, PMF.toOuterMeasure_map_apply]
+  rfl
+
+/-- Two deterministic games differ by at most their disagreement-event mass. -/
+theorem advantage_map_le_disagreementMass {Sample : Type uSample}
+    (source : PMF Sample) (first second : Sample → Bool) :
+    advantage (source.map first) (source.map second) ≤
+      (source.toOuterMeasure { sample | first sample ≠ second sample }).toReal := by
+  let joint := deterministicBoolCoupling source first second
+  calc
+    advantage (source.map first) (source.map second) =
+        advantage (joint.map Prod.fst) (joint.map Prod.snd) := by
+      rw [deterministicBoolCoupling_fst, deterministicBoolCoupling_snd]
+    _ ≤ (joint.toOuterMeasure boolDisagreement).toReal :=
+      advantage_map_prod_le_disagreementMass joint
+    _ = (source.toOuterMeasure { sample | first sample ≠ second sample }).toReal := by
+      rw [deterministicBoolCoupling_disagreement]
+
+/-- The finite collision mass converts to the challenge's real-valued error formula. -/
+theorem blockCollisionMass_toReal (count : Nat) :
+    ((count : ENNReal) * Inv.inv (↑(2 ^ blockBits : Nat) : ENNReal)).toReal =
+      (count : ℝ) / (2 : ℝ) ^ blockBits := by
+  rw [ENNReal.toReal_mul]
+  rw [ENNReal.toReal_inv]
+  norm_num [blockBits, div_eq_mul_inv]
+
+/-- This game refines the real adaptive game with both reached query traces. -/
+noncomputable def tracedRealGame
+    {oracle : OracleSpec}
+    {Circuit Input Output Randomness Public EncodingKey Labels
+      EvaluationOracle : Type uSample} {Aux : Type uCPAAux}
+    (scheme : GarbledCircuit Circuit Input Output Randomness Public EncodingKey Labels
+      EvaluationOracle)
+    (randomTape : Nat → PMF Randomness)
+    (oracleHandler : OracleHandler oracle Randomness)
+    (adversary : AdaptiveAdversary oracle Input Public Labels Aux)
+    (parameter : Nat) (circuit : Circuit) (auxiliary : Aux) :
+    PMF (Bool × Randomness × List (oracle.Query × Randomness)) :=
+  (randomTape parameter).bind fun randomness =>
+    let garbled := scheme.garble parameter circuit randomness
+    runOracleProgramsWithTrace oracleHandler
+      (adversary.chooseInput parameter garbled.1 auxiliary)
+      (fun selected => adversary.decide parameter garbled.1
+        (scheme.encode garbled.2 selected.1) auxiliary selected.2)
+      randomness
+
+/-- Erasing both real traces gives the challenge's real game. -/
+theorem tracedRealGame_erase
+    {oracle : OracleSpec}
+    {Circuit Input Output Randomness Public EncodingKey Labels
+      EvaluationOracle : Type uSample} {Aux : Type uCPAAux}
+    (scheme : GarbledCircuit Circuit Input Output Randomness Public EncodingKey Labels
+      EvaluationOracle)
+    (randomTape : Nat → PMF Randomness)
+    (oracleHandler : OracleHandler oracle Randomness)
+    (adversary : AdaptiveAdversary oracle Input Public Labels Aux)
+    (parameter : Nat) (circuit : Circuit) (auxiliary : Aux) :
+    (tracedRealGame scheme randomTape oracleHandler adversary parameter circuit auxiliary).map
+        Prod.fst =
+      realGame scheme randomTape oracleHandler adversary parameter circuit auxiliary := by
+  rw [tracedRealGame, realGame, PMF.map_bind]
+  congr 1
+  funext randomness
+  simpa only using runOracleProgramsWithTrace_result oracleHandler
+    (adversary.chooseInput parameter (scheme.garble parameter circuit randomness).1 auxiliary)
+    (fun selected : Input × adversary.State => adversary.decide parameter
+      (scheme.garble parameter circuit randomness).1
+      (scheme.encode (scheme.garble parameter circuit randomness).2 selected.1)
+      auxiliary selected.2) randomness
+
+/-- The traced real game gives zero mass to paths above both query budgets. -/
+theorem tracedRealGame_overBudget_mass
+    {oracle : OracleSpec}
+    {Circuit Input Output Randomness Public EncodingKey Labels
+      EvaluationOracle : Type uSample} {Aux : Type uCPAAux}
+    (scheme : GarbledCircuit Circuit Input Output Randomness Public EncodingKey Labels
+      EvaluationOracle)
+    (randomTape : Nat → PMF Randomness)
+    (oracleHandler : OracleHandler oracle Randomness)
+    (adversary : AdaptiveAdversary oracle Input Public Labels Aux)
+    (parameter : Nat) (circuit : Circuit) (auxiliary : Aux) :
+    PMF.toOuterMeasure
+      (tracedRealGame scheme randomTape oracleHandler adversary parameter circuit auxiliary)
+      { output |
+        adversary.firstQueryBudget parameter + adversary.secondQueryBudget parameter <
+          output.2.2.length } = 0 := by
+  rw [tracedRealGame, PMF.toOuterMeasure_bind_apply]
+  simp_rw [runOracleProgramsWithTrace_overBudget_mass, mul_zero]
+  simp
+
+/-- This game refines the ideal adaptive game with both reached query traces. -/
+noncomputable def tracedIdealGame
+    {oracle : OracleSpec}
+    {Circuit Input Output Randomness Public EncodingKey Labels EvaluationOracle
+      Topology State : Type uSample} {Aux : Type uCPAAux}
+    (scheme : GarbledCircuit Circuit Input Output Randomness Public EncodingKey Labels
+      EvaluationOracle)
+    (topology : Circuit → Topology)
+    (simulator : Simulator Input Output Public Labels Topology State)
+    (oracleHandler : OracleHandler oracle State)
+    (adversary : AdaptiveAdversary oracle Input Public Labels Aux)
+    (parameter : Nat) (circuit : Circuit) (auxiliary : Aux) :
+    PMF (Bool × State × List (oracle.Query × State)) :=
+  (simulator.simulateGarble parameter (topology circuit)).bind fun simulated =>
+    runOracleProgramsWithBridgeTrace oracleHandler
+      (adversary.chooseInput parameter simulated.1 auxiliary)
+      (fun selected state =>
+        simulator.simulateEncode state selected.1 (scheme.function circuit selected.1))
+      (fun selected encoded => adversary.decide parameter simulated.1 encoded
+        auxiliary selected.2)
+      simulated.2
+
+/-- Erasing both ideal traces gives the challenge's ideal game. -/
+theorem tracedIdealGame_erase
+    {oracle : OracleSpec}
+    {Circuit Input Output Randomness Public EncodingKey Labels EvaluationOracle
+      Topology State : Type uSample} {Aux : Type uCPAAux}
+    (scheme : GarbledCircuit Circuit Input Output Randomness Public EncodingKey Labels
+      EvaluationOracle)
+    (topology : Circuit → Topology)
+    (simulator : Simulator Input Output Public Labels Topology State)
+    (oracleHandler : OracleHandler oracle State)
+    (adversary : AdaptiveAdversary oracle Input Public Labels Aux)
+    (parameter : Nat) (circuit : Circuit) (auxiliary : Aux) :
+    (tracedIdealGame scheme topology simulator oracleHandler adversary parameter circuit
+      auxiliary).map Prod.fst =
+      idealGame scheme topology simulator oracleHandler adversary parameter circuit
+        auxiliary := by
+  rw [tracedIdealGame, idealGame, PMF.map_bind]
+  congr 1
+  funext simulated
+  simpa only using runOracleProgramsWithBridgeTrace_result oracleHandler
+    (adversary.chooseInput parameter simulated.1 auxiliary)
+    (fun selected : Input × adversary.State => fun state =>
+      simulator.simulateEncode state selected.1 (scheme.function circuit selected.1))
+    (fun selected : Input × adversary.State => fun encoded : Labels =>
+      adversary.decide parameter simulated.1 encoded auxiliary selected.2)
+    simulated.2
+
+/-- The traced ideal game gives zero mass to paths above both query budgets. -/
+theorem tracedIdealGame_overBudget_mass
+    {oracle : OracleSpec}
+    {Circuit Input Output Randomness Public EncodingKey Labels EvaluationOracle
+      Topology State : Type uSample} {Aux : Type uCPAAux}
+    (scheme : GarbledCircuit Circuit Input Output Randomness Public EncodingKey Labels
+      EvaluationOracle)
+    (topology : Circuit → Topology)
+    (simulator : Simulator Input Output Public Labels Topology State)
+    (oracleHandler : OracleHandler oracle State)
+    (adversary : AdaptiveAdversary oracle Input Public Labels Aux)
+    (parameter : Nat) (circuit : Circuit) (auxiliary : Aux) :
+    (tracedIdealGame scheme topology simulator oracleHandler adversary parameter circuit
+      auxiliary).toOuterMeasure { output |
+        adversary.firstQueryBudget parameter + adversary.secondQueryBudget parameter <
+          output.2.2.length } = 0 := by
+  rw [tracedIdealGame, PMF.toOuterMeasure_bind_apply]
+  simp_rw [runOracleProgramsWithBridgeTrace_overBudget_mass, mul_zero]
+  simp
+
+/-- One traced coupling and one bad-event bound imply the adaptive game bound. -/
+theorem adaptiveAdvantage_le_of_tracedCoupling
+    {oracle : OracleSpec}
+    {Circuit Input Output Randomness Public EncodingKey Labels EvaluationOracle
+      Topology State : Type uSample} {Aux : Type uCPAAux}
+    (scheme : GarbledCircuit Circuit Input Output Randomness Public EncodingKey Labels
+      EvaluationOracle)
+    (topology : Circuit → Topology)
+    (simulator : Simulator Input Output Public Labels Topology State)
+    (randomTape : Nat → PMF Randomness)
+    (realOracle : OracleHandler oracle Randomness)
+    (idealOracle : OracleHandler oracle State)
+    (adversary : AdaptiveAdversary oracle Input Public Labels Aux)
+    (parameter : Nat) (circuit : Circuit) (auxiliary : Aux)
+    (joint : PMF
+      ((Bool × Randomness × List (oracle.Query × Randomness)) ×
+        (Bool × State × List (oracle.Query × State))))
+    (error : ENNReal)
+    (firstMarginal : joint.map Prod.fst =
+      tracedRealGame scheme randomTape realOracle adversary parameter circuit auxiliary)
+    (secondMarginal : joint.map Prod.snd =
+      tracedIdealGame scheme topology simulator idealOracle adversary parameter circuit
+        auxiliary)
+    (errorFinite : error ≠ ⊤)
+    (disagreementBound : joint.toOuterMeasure
+      { sample | sample.1.1 ≠ sample.2.1 } ≤ error) :
+    advantage
+      (realGame scheme randomTape realOracle adversary parameter circuit auxiliary)
+      (idealGame scheme topology simulator idealOracle adversary parameter circuit auxiliary) ≤
+        error.toReal := by
+  exact advantage_le_of_tracedCoupling
+    (tracedRealGame scheme randomTape realOracle adversary parameter circuit auxiliary)
+    (tracedIdealGame scheme topology simulator idealOracle adversary parameter circuit auxiliary)
+    (realGame scheme randomTape realOracle adversary parameter circuit auxiliary)
+    (idealGame scheme topology simulator idealOracle adversary parameter circuit auxiliary)
+    joint error firstMarginal secondMarginal
+    (tracedRealGame_erase scheme randomTape realOracle adversary parameter circuit auxiliary)
+    (tracedIdealGame_erase scheme topology simulator idealOracle adversary parameter circuit
+      auxiliary)
+    errorFinite disagreementBound
+
+/-- One trace transport and one change-event bound imply the adaptive game bound. -/
+theorem adaptiveAdvantage_le_of_traceTransport
+    {oracle : OracleSpec}
+    {Circuit Input Output Randomness Public EncodingKey Labels EvaluationOracle
+      Topology State : Type uSample} {Aux : Type uCPAAux}
+    (scheme : GarbledCircuit Circuit Input Output Randomness Public EncodingKey Labels
+      EvaluationOracle)
+    (topology : Circuit → Topology)
+    (simulator : Simulator Input Output Public Labels Topology State)
+    (randomTape : Nat → PMF Randomness)
+    (realOracle : OracleHandler oracle Randomness)
+    (idealOracle : OracleHandler oracle State)
+    (adversary : AdaptiveAdversary oracle Input Public Labels Aux)
+    (parameter : Nat) (circuit : Circuit) (auxiliary : Aux)
+    (transport :
+      Bool × Randomness × List (oracle.Query × Randomness) →
+        Bool × State × List (oracle.Query × State))
+    (error : ENNReal)
+    (secondMap :
+      (tracedRealGame scheme randomTape realOracle adversary parameter circuit auxiliary).map
+          transport =
+        tracedIdealGame scheme topology simulator idealOracle adversary parameter circuit
+          auxiliary)
+    (errorFinite : error ≠ ⊤)
+    (changeBound :
+      PMF.toOuterMeasure
+        (tracedRealGame scheme randomTape realOracle adversary parameter circuit auxiliary)
+        { sample | sample.1 ≠ (transport sample).1 } ≤ error) :
+    advantage
+      (realGame scheme randomTape realOracle adversary parameter circuit auxiliary)
+      (idealGame scheme topology simulator idealOracle adversary parameter circuit auxiliary) ≤
+        error.toReal := by
+  exact advantage_le_of_traceTransport
+    (tracedRealGame scheme randomTape realOracle adversary parameter circuit auxiliary)
+    (tracedIdealGame scheme topology simulator idealOracle adversary parameter circuit auxiliary)
+    (realGame scheme randomTape realOracle adversary parameter circuit auxiliary)
+    (idealGame scheme topology simulator idealOracle adversary parameter circuit auxiliary)
+    transport error secondMap
+    (tracedRealGame_erase scheme randomTape realOracle adversary parameter circuit auxiliary)
+    (tracedIdealGame_erase scheme topology simulator idealOracle adversary parameter circuit
+      auxiliary)
+    errorFinite changeBound
+
+/-- Traced couplings with concrete bounds imply the adaptive privacy property. -/
+theorem concreteAdaptivePrivacy_of_tracedCouplings
+    {oracle : OracleSpec}
+    {Circuit Input Output Randomness Public EncodingKey Labels EvaluationOracle
+      Topology State : Type uSample} {Aux : Type uCPAAux}
+    (scheme : GarbledCircuit Circuit Input Output Randomness Public EncodingKey Labels
+      EvaluationOracle)
+    (topology : Circuit → Topology)
+    (simulator : Simulator Input Output Public Labels Topology State)
+    (randomTape : Nat → PMF Randomness)
+    (realOracle : OracleHandler oracle Randomness)
+    (idealOracle : OracleHandler oracle State)
+    (bits : Nat)
+    (error : AdaptiveAdversary oracle Input Public Labels Aux → Nat → ENNReal)
+    (errorFinite : ∀ adversary parameter, error adversary parameter ≠ ⊤)
+    (errorConcrete : ∀ adversary parameter,
+      WorkPerAdvantage bits (adversaryWork adversary parameter)
+        (error adversary parameter).toReal)
+    (coupling : ∀ adversary circuit auxiliary parameter,
+      ∃ joint : PMF
+        ((Bool × Randomness × List (oracle.Query × Randomness)) ×
+          (Bool × State × List (oracle.Query × State))),
+        joint.map Prod.fst =
+            tracedRealGame scheme randomTape realOracle adversary parameter circuit auxiliary ∧
+          joint.map Prod.snd =
+            tracedIdealGame scheme topology simulator idealOracle adversary parameter circuit
+              auxiliary ∧
+          joint.toOuterMeasure { sample | sample.1.1 ≠ sample.2.1 } ≤
+            error adversary parameter) :
+    ConcreteAdaptivePrivacy (Aux := Aux) scheme topology simulator randomTape realOracle
+      idealOracle bits := by
+  intro adversary circuits auxiliaries parameter
+  rcases coupling adversary (circuits parameter) (auxiliaries parameter) parameter with
+    ⟨joint, firstMarginal, secondMarginal, disagreementBound⟩
+  have advantageBound := adaptiveAdvantage_le_of_tracedCoupling
+    scheme topology simulator randomTape realOracle idealOracle adversary parameter
+    (circuits parameter) (auxiliaries parameter) joint (error adversary parameter)
+    firstMarginal secondMarginal (errorFinite adversary parameter) disagreementBound
+  unfold WorkPerAdvantage
+  exact (mul_le_mul_of_nonneg_right advantageBound (by positivity)).trans
+    (errorConcrete adversary parameter)
+
+/-- Trace transports with concrete bounds imply the adaptive privacy property. -/
+theorem concreteAdaptivePrivacy_of_traceTransports
+    {oracle : OracleSpec}
+    {Circuit Input Output Randomness Public EncodingKey Labels EvaluationOracle
+      Topology State : Type uSample} {Aux : Type uCPAAux}
+    (scheme : GarbledCircuit Circuit Input Output Randomness Public EncodingKey Labels
+      EvaluationOracle)
+    (topology : Circuit → Topology)
+    (simulator : Simulator Input Output Public Labels Topology State)
+    (randomTape : Nat → PMF Randomness)
+    (realOracle : OracleHandler oracle Randomness)
+    (idealOracle : OracleHandler oracle State)
+    (bits : Nat)
+    (error : AdaptiveAdversary oracle Input Public Labels Aux → Nat → ENNReal)
+    (errorFinite : ∀ adversary parameter, error adversary parameter ≠ ⊤)
+    (errorConcrete : ∀ adversary parameter,
+      WorkPerAdvantage bits (adversaryWork adversary parameter)
+        (error adversary parameter).toReal)
+    (transport : ∀
+      (_adversary : AdaptiveAdversary oracle Input Public Labels Aux)
+      (_circuit : Circuit) (_auxiliary : Aux) (_parameter : Nat),
+      Bool × Randomness × List (oracle.Query × Randomness) →
+        Bool × State × List (oracle.Query × State))
+    (secondMap : ∀
+      (adversary : AdaptiveAdversary oracle Input Public Labels Aux)
+      (circuit : Circuit) (auxiliary : Aux) (parameter : Nat),
+      (tracedRealGame scheme randomTape realOracle adversary parameter circuit auxiliary).map
+          (transport adversary circuit auxiliary parameter) =
+        tracedIdealGame scheme topology simulator idealOracle adversary parameter circuit
+          auxiliary)
+    (changeBound : ∀
+      (adversary : AdaptiveAdversary oracle Input Public Labels Aux)
+      (circuit : Circuit) (auxiliary : Aux) (parameter : Nat),
+      PMF.toOuterMeasure
+        (tracedRealGame scheme randomTape realOracle adversary parameter circuit auxiliary)
+          { sample |
+            sample.1 ≠ (transport adversary circuit auxiliary parameter sample).1 } ≤
+        error adversary parameter) :
+    ConcreteAdaptivePrivacy (Aux := Aux) scheme topology simulator randomTape realOracle
+      idealOracle bits := by
+  intro adversary circuits auxiliaries parameter
+  have advantageBound := adaptiveAdvantage_le_of_traceTransport
+    scheme topology simulator randomTape realOracle idealOracle adversary parameter
+    (circuits parameter) (auxiliaries parameter)
+    (transport adversary (circuits parameter) (auxiliaries parameter) parameter)
+    (error adversary parameter)
+    (secondMap adversary (circuits parameter) (auxiliaries parameter) parameter)
+    (errorFinite adversary parameter)
+    (changeBound adversary (circuits parameter) (auxiliaries parameter) parameter)
+  unfold WorkPerAdvantage
+  exact (mul_le_mul_of_nonneg_right advantageBound (by positivity)).trans
+    (errorConcrete adversary parameter)
+
 /-- The paper base-`(2 - omega)` case uses 92 active inputs per bucket. -/
 def paperActiveInputsPerBucket : Nat := 92
 
 /-- The paper proof uses 6858 independent permutation buckets. -/
 def paperBucketCount : Nat := 6858
+
+/-- Mixed selected branches fit below the three-hash birthday budget. -/
+theorem selectedBranchBucketSquareBound (falseUses trueUses capacity : Nat)
+    (loadBound : falseUses + trueUses ≤ capacity) :
+    3 * falseUses ^ 2 + 2 * trueUses ^ 2 ≤ 3 * capacity ^ 2 := by
+  nlinarith [Nat.zero_le falseUses, Nat.zero_le trueUses]
+
+/-- Mixed selected branches fit below the three-hash linear query budget. -/
+theorem selectedBranchBucketLinearBound (falseUses trueUses capacity : Nat)
+    (loadBound : falseUses + trueUses ≤ capacity) :
+    3 * falseUses + 2 * trueUses ≤ 3 * capacity := by
+  omega
 
 noncomputable def paperCTPRFError (securityParameter oracleQueries : Nat) : ℝ :=
   ((3 * paperBucketCount * paperActiveInputsPerBucket ^ 2 +
@@ -161,15 +889,214 @@ theorem programmedPadArithmeticHas100Bits :
     ConcreteBound 100 permutationWork programmedPadError :=
   programmedScheduleArithmeticHas100Bits Pipeline.padPermutationCount (by decide)
 
+/-- One selected branch pays for its active schedule only. -/
+noncomputable def selectedBranchProgrammedError (bit : Bool) : Nat → ℝ :=
+  if bit then programmedPadError else programmedHashError
+
+/-- Each selected branch retains 100-bit arithmetic without a five-slot sum. -/
+theorem selectedBranchProgrammingArithmeticHas100Bits (bit : Bool) :
+    ConcreteBound 100 permutationWork (selectedBranchProgrammedError bit) := by
+  cases bit
+  · exact programmedHashArithmeticHas100Bits
+  · exact programmedPadArithmeticHas100Bits
+
 /-- This value counts all bit-adaptor evaluations in one circuit. -/
 def bitAdaptorEvaluationCount : Nat :=
   Pipeline.digitAdaptorCount * coordinateBitCount
 
-theorem bitAdaptorEvaluationCountValue : bitAdaptorEvaluationCount = 211582 := by decide
+theorem bitAdaptorEvaluationCountValue : bitAdaptorEvaluationCount = 301752 := by decide
+
+/-- This event records one selected gate's rejected hash-lift suffix. -/
+def dependentHashLiftBadEvent
+    (location : Fin bitAdaptorEvaluationCount →
+      GarblingRandomnessRest → Pipeline.FixedKeyLocation)
+    (window : Fin bitAdaptorEvaluationCount → GarblingRandomnessRest → Nat)
+    (label : Fin bitAdaptorEvaluationCount → GarblingRandomnessRest → Block)
+    (index : Fin bitAdaptorEvaluationCount) : Set Garbling.Randomness :=
+  fun randomness => hashLiftSplitEquiv
+    (fixedDaviesMeyerHashLift
+      (location index (garblingRandomnessRest randomness))
+      (window index (garblingRandomnessRest randomness))
+      (label index (garblingRandomnessRest randomness))
+      randomness.fixedKeyOracle) ∈ hashLiftBadSet
+
+/-- Each selected dependent-label event has the exact complete-tape mass. -/
+theorem randomTape_dependentHashLiftBadEvent_mass
+    (witness : Garbling.Randomness) (parameter : Nat)
+    (location : Fin bitAdaptorEvaluationCount →
+      GarblingRandomnessRest → Pipeline.FixedKeyLocation)
+    (window : Fin bitAdaptorEvaluationCount → GarblingRandomnessRest → Nat)
+    (label : Fin bitAdaptorEvaluationCount → GarblingRandomnessRest → Block)
+    (index : Fin bitAdaptorEvaluationCount) :
+    (randomTape witness parameter).toOuterMeasure
+        (dependentHashLiftBadEvent location window label index) =
+      ((2 ^ 384 % BN254.baseFieldModulus : Nat) : ENNReal) /
+        ((2 ^ 384 : Nat) : ENNReal) := by
+  rw [← randomTape_dependentGateDaviesMeyerHashSplit_badMass witness parameter
+    (location index) (window index) (label index)]
+  rw [PMF.toOuterMeasure_map_apply]
+  rfl
+
+/-- This is the aggregate mass bound for all selected hash lifts. -/
+noncomputable def hashLiftAggregateMass : ENNReal :=
+  ((bitAdaptorEvaluationCount * BN254.baseFieldModulus : Nat) : ENNReal) /
+    ((2 ^ 384 : Nat) : ENNReal)
+
+set_option exponentiation.threshold 400 in
+/-- All selected hash-lift failures have this aggregate outer-measure bound. -/
+theorem selectedHashLiftBadUnion_mass_le
+    {Sample : Type uSample} (measure : MeasureTheory.OuterMeasure Sample)
+    (event : Fin bitAdaptorEvaluationCount → Set Sample)
+    (localBound : ∀ index, measure (event index) ≤
+      (BN254.baseFieldModulus : ENNReal) / ((2 ^ 384 : Nat) : ENNReal)) :
+    measure (⋃ index, event index) ≤ hashLiftAggregateMass := by
+  calc
+    measure (⋃ index, event index) ≤
+        (Fintype.card (Fin bitAdaptorEvaluationCount) : ENNReal) *
+          ((BN254.baseFieldModulus : ENNReal) /
+            ((2 ^ 384 : Nat) : ENNReal)) :=
+      finiteBadEventUnionMass_le measure event _ localBound
+    _ = hashLiftAggregateMass := by
+      have castProduct :
+          ((bitAdaptorEvaluationCount * BN254.baseFieldModulus : Nat) : ENNReal) =
+            (bitAdaptorEvaluationCount : ENNReal) *
+              (BN254.baseFieldModulus : ENNReal) := by
+        exact_mod_cast (Nat.cast_mul bitAdaptorEvaluationCount
+          BN254.baseFieldModulus :
+            (bitAdaptorEvaluationCount * BN254.baseFieldModulus : Nat) = _)
+      rw [hashLiftAggregateMass, Fintype.card_fin, castProduct]
+      simp only [div_eq_mul_inv]
+      ring
+
+set_option exponentiation.threshold 400 in
+/-- All dependent-label gate failures have the aggregate security-tape bound. -/
+theorem selectedDependentHashLiftBadUnion_mass_le
+    (witness : Garbling.Randomness) (parameter : Nat)
+    (location : Fin bitAdaptorEvaluationCount →
+      GarblingRandomnessRest → Pipeline.FixedKeyLocation)
+    (window : Fin bitAdaptorEvaluationCount → GarblingRandomnessRest → Nat)
+    (label : Fin bitAdaptorEvaluationCount → GarblingRandomnessRest → Block) :
+    (randomTape witness parameter).toOuterMeasure
+        (⋃ index, dependentHashLiftBadEvent location window label index) ≤
+      hashLiftAggregateMass := by
+  apply selectedHashLiftBadUnion_mass_le
+  intro index
+  rw [randomTape_dependentHashLiftBadEvent_mass]
+  apply ENNReal.div_le_div_right
+  exact_mod_cast hashLiftRemainder_lt_baseFieldModulus.le
 
 /-- This is the bound shape for the total 384-bit lift rounding term. -/
 noncomputable def hashLiftRoundingError : ℝ :=
   ((bitAdaptorEvaluationCount * BN254.baseFieldModulus : Nat) : ℝ) / (2 : ℝ) ^ 384
+
+set_option exponentiation.threshold 400 in
+/-- The aggregate mass converts to the challenge's real-valued error term. -/
+theorem hashLiftAggregateMass_toReal :
+    hashLiftAggregateMass.toReal = hashLiftRoundingError := by
+  rw [hashLiftAggregateMass, hashLiftRoundingError, ENNReal.toReal_div]
+  norm_num
+
+set_option exponentiation.threshold 400 in
+/-- The real mass of all selected lift failures is at most the declared error. -/
+theorem selectedHashLiftBadUnion_toReal_le
+    {Sample : Type uSample} (measure : MeasureTheory.OuterMeasure Sample)
+    (event : Fin bitAdaptorEvaluationCount → Set Sample)
+    (localBound : ∀ index, measure (event index) ≤
+      (BN254.baseFieldModulus : ENNReal) / ((2 ^ 384 : Nat) : ENNReal)) :
+    (measure (⋃ index, event index)).toReal ≤ hashLiftRoundingError := by
+  rw [← hashLiftAggregateMass_toReal]
+  apply ENNReal.toReal_mono
+  · rw [hashLiftAggregateMass]
+    apply ENNReal.div_ne_top
+    · have castProduct :
+          ((bitAdaptorEvaluationCount * BN254.baseFieldModulus : Nat) : ENNReal) =
+            (bitAdaptorEvaluationCount : ENNReal) *
+              (BN254.baseFieldModulus : ENNReal) := by
+          exact_mod_cast (Nat.cast_mul bitAdaptorEvaluationCount
+            BN254.baseFieldModulus :
+              (bitAdaptorEvaluationCount * BN254.baseFieldModulus : Nat) = _)
+      rw [castProduct]
+      exact ENNReal.mul_ne_top (by simp) (by simp)
+    · norm_num
+  · exact selectedHashLiftBadUnion_mass_le measure event localBound
+
+set_option exponentiation.threshold 400 in
+/-- The real dependent-label union mass is at most the rounding error. -/
+theorem selectedDependentHashLiftBadUnion_toReal_le
+    (witness : Garbling.Randomness) (parameter : Nat)
+    (location : Fin bitAdaptorEvaluationCount →
+      GarblingRandomnessRest → Pipeline.FixedKeyLocation)
+    (window : Fin bitAdaptorEvaluationCount → GarblingRandomnessRest → Nat)
+    (label : Fin bitAdaptorEvaluationCount → GarblingRandomnessRest → Block) :
+    ((randomTape witness parameter).toOuterMeasure
+        (⋃ index, dependentHashLiftBadEvent location window label index)).toReal ≤
+      hashLiftRoundingError := by
+  apply selectedHashLiftBadUnion_toReal_le
+  intro index
+  rw [randomTape_dependentHashLiftBadEvent_mass]
+  apply ENNReal.div_le_div_right
+  exact_mod_cast hashLiftRemainder_lt_baseFieldModulus.le
+
+/-- This schedule contains the real selected locations, windows, and labels. -/
+def selectedGateMetadataSchedule (rest : GarblingRandomnessRest)
+    (input : BN254.AffineInput) : List GateDirective :=
+  let curve := defaultSimulatorCoin.tableSample.curveRequest.retarget input
+    rest.algebraic.field.bridgeKey
+  let curveInputMac := rest.inputMacKey.encodeAffine input
+  let pointInputMac := EncPRF.transformMac rest.encPRFOracle
+    (EncPRF.whiteningKeys rest.hashOracle rest.algebraic.field.bridgeKey)
+    (BitInput.ofAffine input) curveInputMac
+  pipelineGateSchedule curve defaultSimulatorCoin.tableSample.pointRequests input
+    curveInputMac pointInputMac
+
+/-- The selected metadata schedule contains all 301,752 gates. -/
+theorem selectedGateMetadataSchedule_length (rest : GarblingRandomnessRest)
+    (input : BN254.AffineInput) :
+    (selectedGateMetadataSchedule rest input).length = bitAdaptorEvaluationCount := by
+  rw [selectedGateMetadataSchedule, pipelineGateSchedule_length]
+  rfl
+
+/-- This value selects one gate from the complete metadata schedule. -/
+def selectedGateMetadataDirective (rest : GarblingRandomnessRest)
+    (input : BN254.AffineInput)
+    (index : Fin bitAdaptorEvaluationCount) : GateDirective :=
+  (selectedGateMetadataSchedule rest input).get ⟨index.val, by
+    rw [selectedGateMetadataSchedule_length]
+    exact index.isLt⟩
+
+/-- This event records one actual selected gate's rejected hash lift. -/
+def selectedGateHashBadEvent (input : BN254.AffineInput)
+    (index : Fin bitAdaptorEvaluationCount) : Set Garbling.Randomness :=
+  dependentHashLiftBadEvent
+    (fun selected rest => (selectedGateMetadataDirective rest input selected).location)
+    (fun selected rest => (selectedGateMetadataDirective rest input selected).window)
+    (fun selected rest => (selectedGateMetadataDirective rest input selected).label)
+    index
+
+set_option exponentiation.threshold 400 in
+/-- The actual selected gate suffix union has the aggregate security-tape bound. -/
+theorem selectedGateHashBadUnion_mass_le
+    (witness : Garbling.Randomness) (parameter : Nat)
+    (input : BN254.AffineInput) :
+    (randomTape witness parameter).toOuterMeasure
+        (⋃ index, selectedGateHashBadEvent input index) ≤ hashLiftAggregateMass := by
+  exact selectedDependentHashLiftBadUnion_mass_le witness parameter
+    (fun selected rest => (selectedGateMetadataDirective rest input selected).location)
+    (fun selected rest => (selectedGateMetadataDirective rest input selected).window)
+    (fun selected rest => (selectedGateMetadataDirective rest input selected).label)
+
+set_option exponentiation.threshold 400 in
+/-- The real selected gate suffix union is at most the rounding error. -/
+theorem selectedGateHashBadUnion_toReal_le
+    (witness : Garbling.Randomness) (parameter : Nat)
+    (input : BN254.AffineInput) :
+    ((randomTape witness parameter).toOuterMeasure
+        (⋃ index, selectedGateHashBadEvent input index)).toReal ≤
+      hashLiftRoundingError := by
+  exact selectedDependentHashLiftBadUnion_toReal_le witness parameter
+    (fun selected rest => (selectedGateMetadataDirective rest input selected).location)
+    (fun selected rest => (selectedGateMetadataDirective rest input selected).window)
+    (fun selected rest => (selectedGateMetadataDirective rest input selected).label)
 
 set_option exponentiation.threshold 400 in
 /-- The total lift rounding term retains 100-bit arithmetic. -/

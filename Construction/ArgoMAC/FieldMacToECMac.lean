@@ -10,20 +10,14 @@ namespace Kriterion.ArgoMAC.FieldMacToECMac
 
 open BN254
 
-def outputMacCount : Nat := 92
+def outputMacCount : Nat := 91
 
-/-- The evaluator computes one Jacobian row before batch inversion. -/
-structure JacobianValue where
+/-- The evaluator computes one homogeneous row before batch inversion. -/
+structure HomogeneousValue where
   x : BaseField
   y : BaseField
   z : BaseField
 deriving DecidableEq
-
-/-- This operation creates an unchecked affine value after batch inversion. -/
-def JacobianValue.toUncheckedAffine [FieldCertificate] (value : JacobianValue) : AffineInput := {
-  x := value.x / value.z ^ 2
-  y := value.y / value.z ^ 3
-}
 
 /-- Each output MAC uses three biquadratic tables. -/
 structure RowTable where
@@ -65,17 +59,17 @@ def AffineOffset.point [FieldCertificate] (offset : AffineOffset) : Point :=
     | none => exact (defined decoded).elim
     | some point => rfl)
 
-def freeOffsetPoints [FieldCertificate] (free : Vector AffineOffset 91) : List Point :=
+def freeOffsetPoints [FieldCertificate] (free : Vector AffineOffset 90) : List Point :=
   free.toList.map fun offset => AffineOffset.point offset
 
 def clampedFirst [FieldCertificate] [GroupCertificate]
-    (free : Vector AffineOffset 91) : Point :=
+    (free : Vector AffineOffset 90) : Point :=
   -(radix • pointHorner radix (freeOffsetPoints free))
 
 /-- This contains the affine offsets from one successful garbling run. -/
 structure SuccessfulOffsets where
   first : AffineOffset
-  free : Vector AffineOffset 91
+  free : Vector AffineOffset 90
 
 def SuccessfulOffsets.IsClamped [FieldCertificate] [GroupCertificate]
     (offsets : SuccessfulOffsets) : Prop :=
@@ -97,9 +91,10 @@ def outputKeys (construction : Construction) (scalar : ScalarField)
   let digits : Vector Digit outputMacCount :=
     ⟨(construction.digits scalar).toArray,
       by simpa [outputMacCount] using construction.digitCount scalar⟩
+  let offsetValues := offsets.values
   Vector.ofFn fun index => {
     digit := digits.get index
-    offset := offsets.values.get index
+    offset := offsetValues.get index
   }
 
 def rowsForOutputKeys (keys : OutputKeys) (randomness : Randomness) : Rows :=
@@ -109,9 +104,7 @@ def rowsForOutputKeys (keys : OutputKeys) (randomness : Randomness) : Rows :=
       (randomness.get index).rho.value
 
 def SparseRow (rows : Coordinates.Rows) : Prop :=
-  rows.x.xy = 0 ∧ rows.x.ySquared = 0 ∧ rows.y.x = 0 ∧
-    rows.z.y = 0 ∧ rows.z.xy = 0 ∧ rows.z.xSquared = 0 ∧
-    rows.z.ySquared = 0
+  rows.x.xSquared = 0 ∧ rows.y.y = 0 ∧ rows.y.xy = 0 ∧ rows.z.x = 0
 
 theorem coordinatesRowsSparse (offset : AffineInput)
     (endomorphismBase : Option BaseField) (randomizer : BaseField) :
@@ -126,167 +119,112 @@ theorem rowsForOutputKeysSparse (keys : OutputKeys) (randomness : Randomness) :
 
 def garbleRow (rows : Coordinates.Rows) (randomness : RowRandomness)
     (oracles : RowOracles) (inputKey : InputMacKey) : RowTable := {
-  x := Biquadratic.garbleX rows.x.constant rows.x.x rows.x.y rows.x.xSquared
+  x := Biquadratic.garbleX rows.x.constant rows.x.x rows.x.y rows.x.xy rows.x.ySquared
     randomness.x oracles.x inputKey
-  y := Biquadratic.garbleY rows.y.constant rows.y.y rows.y.xy rows.y.xSquared
-    rows.y.ySquared randomness.y oracles.y inputKey
-  z := Biquadratic.garbleZ rows.z.constant rows.z.x randomness.z oracles.z inputKey
+  y := Biquadratic.garbleY rows.y.constant rows.y.x rows.y.xSquared rows.y.ySquared
+    randomness.y oracles.y inputKey
+  z := Biquadratic.garbleZ rows.z.constant rows.z.y rows.z.xy rows.z.xSquared
+    rows.z.ySquared randomness.z oracles.z inputKey
 }
 
 def garble (rows : Rows) (randomness : Randomness)
-    (oracles : Oracles) (inputKey : InputMacKey) : Table := {
-  x := Vector.ofFn fun index =>
-    (garbleRow (rows.get index) (randomness.get index)
-      (oracles.get index) inputKey).x
-  y := Vector.ofFn fun index =>
-    (garbleRow (rows.get index) (randomness.get index)
-      (oracles.get index) inputKey).y
-  z := Vector.ofFn fun index =>
-    (garbleRow (rows.get index) (randomness.get index)
-      (oracles.get index) inputKey).z
-}
+    (oracles : Oracles) (inputKey : InputMacKey) : Table :=
+  let tables := Vector.ofFn fun index =>
+    garbleRow (rows.get index) (randomness.get index) (oracles.get index) inputKey
+  { x := tables.map RowTable.x
+    y := tables.map RowTable.y
+    z := tables.map RowTable.z }
 
-def evaluateJacobian (table : Table) (oracles : Oracles)
-    (input : AffineInput) (inputMac : InputMac) : Vector JacobianValue outputMacCount :=
+def evaluateHomogeneous (table : Table) (oracles : Oracles)
+    (input : AffineInput) (inputMac : InputMac) : Vector HomogeneousValue outputMacCount :=
   Vector.ofFn fun index => {
     x := Biquadratic.evaluate (oracles.get index).x (table.x.get index) input inputMac
     y := Biquadratic.evaluate (oracles.get index).y (table.y.get index) input inputMac
     z := Biquadratic.evaluate (oracles.get index).z (table.z.get index) input inputMac
   }
 
-/-- The result contains the input and 92 unchecked affine MAC values. -/
+/-- The result keeps 91 homogeneous MAC values for checked decode. -/
 structure Result where
   point : AffineInput
-  pointMacs : Vector AffineInput outputMacCount
+  pointMacs : Vector HomogeneousValue outputMacCount
 
-def evaluate [FieldCertificate] (table : Table) (oracles : Oracles)
+def evaluate (table : Table) (oracles : Oracles)
     (input : AffineInput) (inputMac : InputMac) : Result := {
   point := input
-  pointMacs := (evaluateJacobian table oracles input inputMac).map
-    JacobianValue.toUncheckedAffine
+  pointMacs := evaluateHomogeneous table oracles input inputMac
 }
 
-def evaluateRow (rows : Coordinates.Rows) (input : AffineInput) : JacobianValue := {
+def evaluateRow (rows : Coordinates.Rows) (input : AffineInput) : HomogeneousValue := {
   x := Coordinates.evaluate rows.x input
   y := Coordinates.evaluate rows.y input
   z := Coordinates.evaluate rows.z input
 }
 
 def evaluateRows (rows : Rows) (input : AffineInput) :
-    Vector JacobianValue outputMacCount :=
+    Vector HomogeneousValue outputMacCount :=
   Vector.ofFn fun index => evaluateRow (rows.get index) input
 
-theorem evaluateRowsNone [FieldCertificate] (offset input : AffineInput)
-    (randomizer : BaseField) (randomizerNonzero : randomizer ≠ 0) :
-    (evaluateRow (Coordinates.rows offset none randomizer) input).toUncheckedAffine =
-      offset := by
+theorem evaluateRowsNone (offset input : AffineInput) (randomizer : BaseField) :
+    evaluateRow (Coordinates.rows offset none randomizer) input = {
+      x := randomizer * offset.x
+      y := randomizer * offset.y
+      z := randomizer } := by
   cases offset with
   | mk offsetX offsetY =>
-      simp [evaluateRow, JacobianValue.toUncheckedAffine, Coordinates.rows,
-        Coordinates.scale, Coordinates.evaluate]
-      constructor <;> field_simp
+      simp [evaluateRow, Coordinates.rows, Coordinates.scale, Coordinates.evaluate]
+      constructor <;> ring
 
 def transformedInput (phi : BaseField) (input : AffineInput) : AffineInput := {
   x := phi ^ 4 * input.x
   y := phi ^ 3 * input.y
 }
 
-/-- This condition excludes a zero Jacobian `Z` in every nonzero digit row. -/
-def EvaluationSafe (keys : OutputKeys) (input : AffineInput) : Prop :=
-  ∀ index phi, digitEndomorphismBase (keys.get index).digit = some phi →
-    (transformedInput phi input).x ≠ (keys.get index).offset.coordinates.x
-
-def addedCoordinates [FieldCertificate] (offset input : AffineInput) : AffineInput := {
-  x := curve.toAffine.addX input.x offset.x
-    (curve.toAffine.slope input.x offset.x input.y offset.y)
-  y := curve.toAffine.addY input.x offset.x input.y
-    (curve.toAffine.slope input.x offset.x input.y offset.y)
-}
-
-theorem evaluateRowsSome [FieldCertificate] (offset input : AffineInput)
-    (phi randomizer : BaseField) (phiSix : phi ^ 6 = 1)
-    (offsetOnCurve : OnCurve offset) (inputOnCurve : OnCurve input)
-    (xDifferent : (transformedInput phi input).x ≠ offset.x)
-    (randomizerNonzero : randomizer ≠ 0) :
-    (evaluateRow (Coordinates.rows offset (some phi) randomizer) input).toUncheckedAffine =
-      addedCoordinates offset (transformedInput phi input) := by
-  have transformedOnCurve : OnCurve (transformedInput phi input) :=
-    Coordinates.transformedOnCurve phi phiSix input inputOnCurve
+/-- A nonzero-digit row evaluates the complete law with one common scale. -/
+theorem evaluateRowsSome (offset input : AffineInput) (phi randomizer : BaseField) :
+    evaluateRow (Coordinates.rows offset (some phi) randomizer) input = {
+      x := randomizer * Coordinates.algorithmX offset (transformedInput phi input)
+      y := randomizer * Coordinates.algorithmY offset (transformedInput phi input)
+      z := randomizer * Coordinates.algorithmZ offset (transformedInput phi input) } := by
   have rows := Coordinates.evaluateRowsSome offset input phi randomizer
   obtain ⟨xRow, yRow, zRow⟩ := rows
-  change Coordinates.evaluate (Coordinates.rows offset (some phi) randomizer).x input =
-    randomizer ^ 2 * Coordinates.evaluate (Coordinates.xCoefficients offset)
-      (transformedInput phi input) at xRow
-  change Coordinates.evaluate (Coordinates.rows offset (some phi) randomizer).y input =
-    randomizer ^ 3 * Coordinates.evaluate (Coordinates.yCoefficients offset)
-      (transformedInput phi input) at yRow
-  change Coordinates.evaluate (Coordinates.rows offset (some phi) randomizer).z input =
-    randomizer * Coordinates.evaluate (Coordinates.zCoefficients offset)
-      (transformedInput phi input) at zRow
-  have zNonzero : Coordinates.evaluate (Coordinates.zCoefficients offset)
-      (transformedInput phi input) ≠ 0 := by
-    rw [Coordinates.evaluateZ]
-    exact sub_ne_zero.mpr xDifferent
-  rw [JacobianValue.toUncheckedAffine]
-  congr 1
-  · change Coordinates.evaluate (Coordinates.rows offset (some phi) randomizer).x input /
-        Coordinates.evaluate (Coordinates.rows offset (some phi) randomizer).z input ^ 2 = _
-    rw [xRow, zRow]
-    rw [show randomizer ^ 2 *
-          Coordinates.evaluate (Coordinates.xCoefficients offset) (transformedInput phi input) /
-          (randomizer * Coordinates.evaluate (Coordinates.zCoefficients offset)
-            (transformedInput phi input)) ^ 2 =
-        Coordinates.evaluate (Coordinates.xCoefficients offset) (transformedInput phi input) /
-          Coordinates.evaluate (Coordinates.zCoefficients offset)
-            (transformedInput phi input) ^ 2 by field_simp]
-    exact Coordinates.recoveredX offset (transformedInput phi input)
-      offsetOnCurve transformedOnCurve xDifferent
-  · change Coordinates.evaluate (Coordinates.rows offset (some phi) randomizer).y input /
-        Coordinates.evaluate (Coordinates.rows offset (some phi) randomizer).z input ^ 3 = _
-    rw [yRow, zRow]
-    rw [show randomizer ^ 3 *
-          Coordinates.evaluate (Coordinates.yCoefficients offset) (transformedInput phi input) /
-          (randomizer * Coordinates.evaluate (Coordinates.zCoefficients offset)
-            (transformedInput phi input)) ^ 3 =
-        Coordinates.evaluate (Coordinates.yCoefficients offset) (transformedInput phi input) /
-          Coordinates.evaluate (Coordinates.zCoefficients offset)
-            (transformedInput phi input) ^ 3 by field_simp]
-    exact Coordinates.recoveredY offset (transformedInput phi input)
-      offsetOnCurve transformedOnCurve xDifferent
+  simp only [evaluateRow]
+  rw [xRow, yRow, zRow, Coordinates.evaluateX, Coordinates.evaluateY,
+    Coordinates.evaluateZ]
+  simp [transformedInput]
 
-def expectedResult [FieldCertificate] (rows : Rows)
+def expectedResult (rows : Rows)
     (input : AffineInput) : Result := {
   point := input
-  pointMacs := (evaluateRows rows input).map JacobianValue.toUncheckedAffine
+  pointMacs := evaluateRows rows input
 }
 
-theorem evaluateJacobianEncoded (rows : Rows) (randomness : Randomness)
+theorem evaluateHomogeneousEncoded (rows : Rows) (randomness : Randomness)
     (oracles : Oracles) (inputKey : InputMacKey) (input : AffineInput) :
     (∀ index, SparseRow (rows.get index)) →
-    evaluateJacobian (garble rows randomness oracles inputKey) oracles
+    evaluateHomogeneous (garble rows randomness oracles inputKey) oracles
         input (inputKey.encodeAffine input) =
       evaluateRows rows input := by
   intro sparse
   apply Vector.ext
   intro index inRange
   have rowSparse := sparse ⟨index, inRange⟩
-  rcases rowSparse with ⟨xXY, xY2, yX, zY, zXY, zX2, zY2⟩
-  simp only [evaluateJacobian, garble, garbleRow, Vector.getElem_ofFn,
-    Vector.get_ofFn]
+  rcases rowSparse with ⟨xX2, yY, yXY, zX⟩
+  simp only [evaluateHomogeneous, garble, garbleRow, Vector.getElem_ofFn,
+    Vector.get_map, Vector.get_ofFn]
   rw [Biquadratic.evaluateEncodedX, Biquadratic.evaluateEncodedY,
     Biquadratic.evaluateEncodedZ]
-  simp [evaluateRows, evaluateRow, Coordinates.evaluate, xXY, xY2, yX, zY, zXY,
-    zX2, zY2]
-  ring
+  simp [evaluateRows, evaluateRow, Coordinates.evaluate, xX2, yY, yXY, zX]
+  ring_nf
+  constructor <;> trivial
 
-theorem evaluateEncoded [FieldCertificate]
+theorem evaluateEncoded
     (rows : Rows) (randomness : Randomness)
     (oracles : Oracles) (inputKey : InputMacKey) (input : AffineInput) :
     (∀ index, SparseRow (rows.get index)) →
     evaluate (garble rows randomness oracles inputKey) oracles
         input (inputKey.encodeAffine input) = expectedResult rows input := by
   intro sparse
-  rw [evaluate, evaluateJacobianEncoded rows randomness oracles inputKey input sparse]
+  rw [evaluate, evaluateHomogeneousEncoded rows randomness oracles inputKey input sparse]
   rfl
 
 end Kriterion.ArgoMAC.FieldMacToECMac

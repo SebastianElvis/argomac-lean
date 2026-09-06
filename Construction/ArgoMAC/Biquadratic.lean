@@ -34,16 +34,19 @@ structure Table where
 structure XRandomness where
   r1 : BaseField
   r2 : BaseField
-  r4 : BaseField
+  r3 : BaseField
+  r5 : BaseField
 
 structure YRandomness where
-  r2 : BaseField
-  r3 : BaseField
+  r1 : BaseField
   r4 : BaseField
   r5 : BaseField
 
 structure ZRandomness where
-  r1 : BaseField
+  r2 : BaseField
+  r3 : BaseField
+  r4 : BaseField
+  r5 : BaseField
 
 def evaluateDigit (windows : Nat → BitAdaptor.FixedKeyOracle)
     (table : Option (Vector BitAdaptor.Table coordinateBitCount))
@@ -72,10 +75,35 @@ def evaluate (oracles : Oracles) (table : Table) (input : AffineInput)
     coefficient table.c4 * input.x ^ 2 + coefficient table.c5 * input.y ^ 2 +
     c6 * input.x + c7 * input.x + c8 * input.y + c9 + c10
 
-/-- This is the sparse X-coordinate table. -/
-def garbleX (c0 c1 c2 c4 : BaseField) (randomness : XRandomness)
+/-- This is the four-adaptor RCB X-coordinate table. -/
+def garbleX (c0 c1 c2 c3 c5 : BaseField) (randomness : XRandomness)
     (oracles : Oracles) (inputKey : InputMacKey) : Table :=
-  let y10 := DigitAdaptor.garble oracles.y10 (-randomness.r2) inputKey.y
+  let y6 := DigitAdaptor.garble oracles.y6 (-randomness.r3) inputKey.y
+  let r6 := DigitAdaptor.bitsK y6.2
+  let y8 := DigitAdaptor.garble oracles.y8 (-randomness.r5) inputKey.y
+  let r8 := DigitAdaptor.bitsK y8.2
+  let y10 := DigitAdaptor.garble oracles.y10 (-(randomness.r2 + r8)) inputKey.y
+  let r10 := DigitAdaptor.bitsK y10.2
+  let x9 := DigitAdaptor.garble oracles.x9 (-(randomness.r1 + r6)) inputKey.x
+  let r9 := DigitAdaptor.bitsK x9.2
+  { c0 := some (c0 - r10 - r9)
+    c1 := some (c1 + randomness.r1)
+    c2 := some (c2 + randomness.r2)
+    c3 := some (c3 + randomness.r3)
+    c4 := none
+    c5 := some (c5 + randomness.r5)
+    x7 := none
+    x9 := some x9.1
+    y6 := some y6.1
+    y8 := some y8.1
+    y10 := some y10.1 }
+
+/-- This is the four-adaptor RCB Y-coordinate table. -/
+def garbleY (c0 c1 c4 c5 : BaseField) (randomness : YRandomness)
+    (oracles : Oracles) (inputKey : InputMacKey) : Table :=
+  let y8 := DigitAdaptor.garble oracles.y8 (-randomness.r5) inputKey.y
+  let r8 := DigitAdaptor.bitsK y8.2
+  let y10 := DigitAdaptor.garble oracles.y10 (-r8) inputKey.y
   let r10 := DigitAdaptor.bitsK y10.2
   let x7 := DigitAdaptor.garble oracles.x7 (-randomness.r4) inputKey.x
   let r7 := DigitAdaptor.bitsK x7.2
@@ -83,18 +111,18 @@ def garbleX (c0 c1 c2 c4 : BaseField) (randomness : XRandomness)
   let r9 := DigitAdaptor.bitsK x9.2
   { c0 := some (c0 - r10 - r9)
     c1 := some (c1 + randomness.r1)
-    c2 := some (c2 + randomness.r2)
+    c2 := none
     c3 := none
     c4 := some (c4 + randomness.r4)
-    c5 := none
+    c5 := some (c5 + randomness.r5)
     x7 := some x7.1
     x9 := some x9.1
     y6 := none
-    y8 := none
+    y8 := some y8.1
     y10 := some y10.1 }
 
-/-- This is the sparse Y-coordinate table. -/
-def garbleY (c0 c2 c3 c4 c5 : BaseField) (randomness : YRandomness)
+/-- This is the five-adaptor RCB Z-coordinate table. -/
+def garbleZ (c0 c2 c3 c4 c5 : BaseField) (randomness : ZRandomness)
     (oracles : Oracles) (inputKey : InputMacKey) : Table :=
   let y6 := DigitAdaptor.garble oracles.y6 (-randomness.r3) inputKey.y
   let r6 := DigitAdaptor.bitsK y6.2
@@ -118,23 +146,6 @@ def garbleY (c0 c2 c3 c4 c5 : BaseField) (randomness : YRandomness)
     y8 := some y8.1
     y10 := some y10.1 }
 
-/-- This is the sparse Z-coordinate table. -/
-def garbleZ (c0 c1 : BaseField) (randomness : ZRandomness)
-    (oracles : Oracles) (inputKey : InputMacKey) : Table :=
-  let x9 := DigitAdaptor.garble oracles.x9 (-randomness.r1) inputKey.x
-  let r9 := DigitAdaptor.bitsK x9.2
-  { c0 := some (c0 - r9)
-    c1 := some (c1 + randomness.r1)
-    c2 := none
-    c3 := none
-    c4 := none
-    c5 := none
-    x7 := none
-    x9 := some x9.1
-    y6 := none
-    y8 := none
-    y10 := none }
-
 theorem evaluateDigitGarbleEncode (windows : Nat → BitAdaptor.FixedKeyOracle)
     (slope : BaseField) (key : CoordinateMacKey) (value : BaseField) :
     evaluateDigit windows (some (DigitAdaptor.garble windows slope key).1) value
@@ -144,37 +155,40 @@ theorem evaluateDigitGarbleEncode (windows : Nat → BitAdaptor.FixedKeyOracle)
     DigitAdaptor.encode key (coordinateValues value) from rfl]
   rw [DigitAdaptor.evaluateValueGarbleEncode, coordinateBitValue]
 
-theorem evaluateEncodedX (c0 c1 c2 c4 : BaseField) (randomness : XRandomness)
+theorem evaluateEncodedX (c0 c1 c2 c3 c5 : BaseField) (randomness : XRandomness)
     (oracles : Oracles) (inputKey : InputMacKey) (input : AffineInput) :
-    evaluate oracles (garbleX c0 c1 c2 c4 randomness oracles inputKey)
+    evaluate oracles (garbleX c0 c1 c2 c3 c5 randomness oracles inputKey)
         input (inputKey.encodeAffine input) =
-      c0 + c1 * input.x + c2 * input.y + c4 * input.x ^ 2 := by
+      c0 + c1 * input.x + c2 * input.y + c3 * input.x * input.y +
+        c5 * input.y ^ 2 := by
   simp only [evaluate, garbleX, InputMacKey.encodeAffine, InputMacKey.encode,
     BitInput.ofAffine, coefficient, evaluateDigitNone, Option.getD_some, Option.getD_none]
   rw [evaluateDigitGarbleEncode, evaluateDigitGarbleEncode,
-    evaluateDigitGarbleEncode]
+    evaluateDigitGarbleEncode, evaluateDigitGarbleEncode]
   ring
 
-theorem evaluateEncodedY (c0 c2 c3 c4 c5 : BaseField) (randomness : YRandomness)
+theorem evaluateEncodedY (c0 c1 c4 c5 : BaseField) (randomness : YRandomness)
     (oracles : Oracles) (inputKey : InputMacKey) (input : AffineInput) :
-    evaluate oracles (garbleY c0 c2 c3 c4 c5 randomness oracles inputKey)
+    evaluate oracles (garbleY c0 c1 c4 c5 randomness oracles inputKey)
+        input (inputKey.encodeAffine input) =
+      c0 + c1 * input.x + c4 * input.x ^ 2 +
+        c5 * input.y ^ 2 := by
+  simp only [evaluate, garbleY, InputMacKey.encodeAffine, InputMacKey.encode,
+    BitInput.ofAffine, coefficient, evaluateDigitNone, Option.getD_some, Option.getD_none]
+  rw [evaluateDigitGarbleEncode, evaluateDigitGarbleEncode,
+    evaluateDigitGarbleEncode, evaluateDigitGarbleEncode]
+  ring
+
+theorem evaluateEncodedZ (c0 c2 c3 c4 c5 : BaseField) (randomness : ZRandomness)
+    (oracles : Oracles) (inputKey : InputMacKey) (input : AffineInput) :
+    evaluate oracles (garbleZ c0 c2 c3 c4 c5 randomness oracles inputKey)
         input (inputKey.encodeAffine input) =
       c0 + c2 * input.y + c3 * input.x * input.y + c4 * input.x ^ 2 +
         c5 * input.y ^ 2 := by
-  simp only [evaluate, garbleY, InputMacKey.encodeAffine, InputMacKey.encode,
+  simp only [evaluate, garbleZ, InputMacKey.encodeAffine, InputMacKey.encode,
     BitInput.ofAffine, coefficient, Option.getD_some, Option.getD_none]
   rw [evaluateDigitGarbleEncode, evaluateDigitGarbleEncode,
-    evaluateDigitGarbleEncode, evaluateDigitGarbleEncode,
-    evaluateDigitGarbleEncode]
-  ring
-
-theorem evaluateEncodedZ (c0 c1 : BaseField) (randomness : ZRandomness)
-    (oracles : Oracles) (inputKey : InputMacKey) (input : AffineInput) :
-    evaluate oracles (garbleZ c0 c1 randomness oracles inputKey)
-        input (inputKey.encodeAffine input) = c0 + c1 * input.x := by
-  simp only [evaluate, garbleZ, InputMacKey.encodeAffine, InputMacKey.encode,
-    BitInput.ofAffine, coefficient, evaluateDigitNone, Option.getD_some, Option.getD_none]
-  rw [evaluateDigitGarbleEncode]
+    evaluateDigitGarbleEncode, evaluateDigitGarbleEncode, evaluateDigitGarbleEncode]
   ring
 
 end Kriterion.ArgoMAC.Biquadratic

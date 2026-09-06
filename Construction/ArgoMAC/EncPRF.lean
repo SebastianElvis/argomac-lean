@@ -21,10 +21,9 @@ structure Counter where
 abbrev PermutationIndex := Coordinate × Fin coordinateBitCount
 abbrev HashOracle := BaseField → Block × Block
 
-def whiteningKeys (oracle : HashOracle) (value : BaseField) : WhiteningKeys := {
-  first := (oracle value).1
-  second := (oracle value).2
-}
+def whiteningKeys (oracle : HashOracle) (value : BaseField) : WhiteningKeys :=
+  let keys := oracle value
+  { first := keys.1, second := keys.2 }
 
 /-- This is the fixed-key AES pad. -/
 def evenMansourPad (oracle : PermutationOracle PermutationIndex Block)

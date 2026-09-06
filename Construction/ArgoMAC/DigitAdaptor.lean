@@ -16,12 +16,10 @@ def encode {count : Nat} (keys : Vector BitAdaptor.Key count)
 def garble {count : Nat} (windows : Nat → BitAdaptor.FixedKeyOracle)
     (slope : BaseField) (keys : Vector BitAdaptor.Key count) :
     Vector BitAdaptor.Table count × Vector BitAdaptor.OutputKey count :=
-  (Vector.ofFn fun index =>
-      (BitAdaptor.garble
-        (windows (BitAdaptor.fixedKeyWindowIndex index.val)) slope (keys.get index)).1,
-    Vector.ofFn fun index =>
-      (BitAdaptor.garble
-        (windows (BitAdaptor.fixedKeyWindowIndex index.val)) slope (keys.get index)).2)
+  let garbled := Vector.ofFn fun index =>
+    BitAdaptor.garble
+      (windows (BitAdaptor.fixedKeyWindowIndex index.val)) slope (keys.get index)
+  (garbled.map Prod.fst, garbled.map Prod.snd)
 
 def evaluate {count : Nat} (windows : Nat → BitAdaptor.FixedKeyOracle)
     (values : Fin count → Bool) (tables : Vector BitAdaptor.Table count)

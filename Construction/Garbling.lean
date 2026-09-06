@@ -81,9 +81,17 @@ def encode (key : EncodingKey) (input : BitInput) : Labels := {
   inputMac := key.randomness.inputMacKey.encode input
 }
 
+def decodeHomogeneous [FieldCertificate]
+    (value : FieldMacToECMac.HomogeneousValue) : Option Point :=
+  if value.z = 0 then
+    if value.x = 0 ∧ value.y ≠ 0 then some 0 else none
+  else
+    decodePoint { x := value.x / value.z, y := value.y / value.z }
+
 def decodePointMacs [FieldCertificate]
-    (values : Vector AffineInput FieldMacToECMac.outputMacCount) : Option (List Point) :=
-  values.toList.mapM decodePoint
+    (values : Vector FieldMacToECMac.HomogeneousValue FieldMacToECMac.outputMacCount) :
+    Option (List Point) :=
+  values.toList.mapM decodeHomogeneous
 
 def decodeResult [FieldCertificate] [GroupCertificate]
     (result : FieldMacToECMac.Result) : Option Point :=
@@ -114,17 +122,17 @@ theorem evaluateEncodeRows [FieldCertificate] (construction : Construction)
     key.randomness.inputMacKey input point decoded
 
 def garbledCircuit [FieldCertificate] [GroupCertificate] (construction : Construction) :
-    GarbledCircuit NonZeroScalar BitInput (Option Point) Randomness PublicCircuit
+    GarbledCircuit NonZeroScalar AffineInput (Option Point) Randomness PublicCircuit
       EncodingKey Labels EvaluationOracle := {
-  function := fun scalar input => checkedScalarMultiplication scalar.value input.toAffine
+  function := fun scalar input => checkedScalarMultiplication scalar.value input
   garble := fun _ scalar randomness => garble construction scalar randomness
-  encode
+  encode := fun key input => encode key (BitInput.ofAffine input)
   evaluate := fun oracle table labels => some (evaluate oracle table labels)
 }
 
 def topology (_scalar : NonZeroScalar) : Topology := {
   coordinateBits := 508
-  outputDigits := 92
+  outputDigits := 91
 }
 
 end Kriterion.ArgoMAC.Garbling

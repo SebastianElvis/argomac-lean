@@ -200,6 +200,28 @@ theorem glvInitialCorrect (scalar : BN254.ScalarField) :
     -(roundedQuotient ((scalar.val : Int) * glvN22) : BN254.ScalarField) * glvBasisOne -
     (roundedQuotient ((scalar.val : Int) * -glvN12) : BN254.ScalarField) * glvBasisTwo
 
+/-- `shiftedInitial` adds one combination of the two GLV basis vectors. -/
+def shiftedInitial (scalar : BN254.ScalarField) (e₁ e₂ : Int) :
+    DecompositionState :=
+  ⟨(glvInitial scalar).a + e₁ * glvN11 + e₂ * glvN21,
+    (glvInitial scalar).b + e₁ * glvN12 + e₂ * glvN22⟩
+
+/-- These four states are the corners of one GLV basis cell. -/
+def fourShiftedInitials (scalar : BN254.ScalarField) : List DecompositionState :=
+  [shiftedInitial scalar 0 0, shiftedInitial scalar 1 0,
+    shiftedInitial scalar 0 1, shiftedInitial scalar 1 1]
+
+/-- `shortInitial` selects the first state that terminates in 91 rounds. -/
+def shortInitial (scalar : BN254.ScalarField) : DecompositionState :=
+  let state₀ := shiftedInitial scalar 0 0
+  let state₁ := shiftedInitial scalar 1 0
+  let state₂ := shiftedInitial scalar 0 1
+  let state₃ := shiftedInitial scalar 1 1
+  if after 91 state₀ = ⟨0, 0⟩ then state₀
+  else if after 91 state₁ = ⟨0, 0⟩ then state₁
+  else if after 91 state₂ = ⟨0, 0⟩ then state₂
+  else state₃
+
 /-- One recurrence step gives the required integer identities. -/
 theorem nextStateEquations (state : DecompositionState) :
     state.a = (nextRound state).u + 2 * (nextState state).a + (nextState state).b ∧
@@ -241,9 +263,10 @@ theorem nextStateCorrect (state : DecompositionState) :
   push_cast
   linear_combination ((nextState state).b : BN254.ScalarField) * omegaQuadratic
 
-/-- This certificate records the fixed numeric termination check. -/
+/-- This certificate records the proved 91-round termination result. -/
 class TerminationCertificate : Prop where
-  terminal : ∀ scalar, after 92 (glvInitial scalar) = ⟨0, 0⟩
+  terminal : ∀ scalar, after 91 (shortInitial scalar) = ⟨0, 0⟩
+  initialCorrect : ∀ scalar, stateValue (shortInitial scalar) = scalar
 
 /-- The fixed recurrence always returns the requested number of digits. -/
 theorem decomposeLength (rounds : Nat) (state : DecompositionState) :
@@ -282,27 +305,27 @@ abbrev Construction := Unit
 /-- `construction` is the one fixed ArgoMAC construction. -/
 def construction : Construction := ()
 
-/-- `digits` returns the 92 fixed recurrence digits. -/
+/-- `digits` returns the 91 fixed recurrence digits. -/
 def Construction.digits (_construction : Construction)
     (scalar : BN254.ScalarField) : List Digit :=
-  decompose 92 (glvInitial scalar)
+  decompose 91 (shortInitial scalar)
 
-/-- The fixed recurrence returns 92 digits. -/
+/-- The fixed recurrence returns 91 digits. -/
 theorem Construction.digitCount (construction : Construction)
-    (scalar : BN254.ScalarField) : (construction.digits scalar).length = 92 := by
-  exact decomposeLength 92 _
+    (scalar : BN254.ScalarField) : (construction.digits scalar).length = 91 := by
+  exact decomposeLength 91 _
 
 /-- The fixed recurrence reconstructs the input scalar. -/
 theorem Construction.scalarReconstruction [TerminationCertificate]
     (construction : Construction) (scalar : BN254.ScalarField) :
     scalarHorner radix ((construction.digits scalar).map digitScalar) = scalar := by
-  have invariant := reconstructionWithTail 92
-    (glvInitial scalar)
+  have invariant := reconstructionWithTail 91
+    (shortInitial scalar)
   rw [TerminationCertificate.terminal scalar] at invariant
   simp [stateValue] at invariant
   change scalarHorner radix
-    ((decompose 92 (glvInitial scalar)).map digitScalar) = scalar
+    ((decompose 91 (shortInitial scalar)).map digitScalar) = scalar
   rw [invariant]
-  exact glvInitialCorrect scalar
+  exact TerminationCertificate.initialCorrect scalar
 
 end Kriterion.ArgoMAC

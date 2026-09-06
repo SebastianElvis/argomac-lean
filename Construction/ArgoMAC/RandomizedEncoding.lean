@@ -31,7 +31,7 @@ theorem Construction.correct [FieldCertificate] [GroupCertificate] [TerminationC
 theorem Construction.outputCount [FieldCertificate] [GroupCertificate]
     (construction : Construction) (scalar : ScalarField)
     (randomness : OffsetRandomness) (point : Point) :
-    (construction.outputs scalar randomness point).length = 92 := by
+    (construction.outputs scalar randomness point).length = 91 := by
   rw [Construction.outputs, encodeDigitsLength point]
   · simp [construction.digitCount scalar]
   · rw [List.length_map, construction.digitCount scalar,
@@ -74,7 +74,7 @@ def Construction.tailShifts [FieldCertificate] [GroupCertificate]
 
 theorem Construction.tailShiftsLength [FieldCertificate] [GroupCertificate]
     (construction : Construction) (scalar : ScalarField) (point : Point) :
-    (construction.tailShifts scalar point).length = 91 := by
+    (construction.tailShifts scalar point).length = 90 := by
   simp [tailShifts, construction.digitCount scalar]
 
 def Construction.offsetEquiv [FieldCertificate] [GroupCertificate]
@@ -114,13 +114,13 @@ theorem Construction.outputs_eq_simulatedOutputs_reindex
       construction.simulatedOutputs (scalarMultiplication scalar point)
         (construction.offsetEquiv scalar point randomness) := by
   set digits := (construction.digits scalar).map digitScalar with digitsDefinition
-  have digitCount : digits.length = 92 := by
+  have digitCount : digits.length = 91 := by
     simp [digits, construction.digitCount scalar]
   have digitsNotEmpty : digits ≠ [] := by
     intro empty
     simp [empty] at digitCount
   obtain ⟨digit, tail, digitsShape⟩ := List.exists_cons_of_ne_nil digitsNotEmpty
-  have tailCount : tail.length = 91 := by
+  have tailCount : tail.length = 90 := by
     rw [digitsShape] at digitCount
     simpa using digitCount
   have reindexed : (construction.offsetEquiv scalar point randomness).freeOffsets =

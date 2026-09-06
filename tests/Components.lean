@@ -25,17 +25,16 @@ theorem base7StepCorrect (state : ArgoMAC.DecompositionState) :
         ArgoMAC.radix * ArgoMAC.stateValue (ArgoMAC.nextState state) :=
   ArgoMAC.nextStateCorrect state
 
-theorem coordinateRowsMatchPointAddition [FieldCertificate] (key input : AffineInput)
-    (keyOnCurve : OnCurve key) (inputOnCurve : OnCurve input) (xNe : input.x ≠ key.x) :
-    ArgoMAC.Coordinates.evaluate (ArgoMAC.Coordinates.xCoefficients key) input /
-        ArgoMAC.Coordinates.evaluate (ArgoMAC.Coordinates.zCoefficients key) input ^ 2 =
-          curve.toAffine.addX input.x key.x (curve.toAffine.slope input.x key.x input.y key.y) ∧
-      ArgoMAC.Coordinates.evaluate (ArgoMAC.Coordinates.yCoefficients key) input /
-        ArgoMAC.Coordinates.evaluate (ArgoMAC.Coordinates.zCoefficients key) input ^ 3 =
-          curve.toAffine.addY input.x key.x input.y
-            (curve.toAffine.slope input.x key.x input.y key.y) :=
-  ⟨ArgoMAC.Coordinates.recoveredX key input keyOnCurve inputOnCurve xNe,
-    ArgoMAC.Coordinates.recoveredY key input keyOnCurve inputOnCurve xNe⟩
+theorem coordinateRowsUseRCB (offset input : AffineInput) :
+    ArgoMAC.Coordinates.evaluate (ArgoMAC.Coordinates.xCoefficients offset) input =
+        ArgoMAC.Coordinates.algorithmX offset input ∧
+      ArgoMAC.Coordinates.evaluate (ArgoMAC.Coordinates.yCoefficients offset) input =
+        ArgoMAC.Coordinates.algorithmY offset input ∧
+      ArgoMAC.Coordinates.evaluate (ArgoMAC.Coordinates.zCoefficients offset) input =
+        ArgoMAC.Coordinates.algorithmZ offset input :=
+  ⟨ArgoMAC.Coordinates.evaluateX offset input,
+    ArgoMAC.Coordinates.evaluateY offset input,
+    ArgoMAC.Coordinates.evaluateZ offset input⟩
 
 theorem digitAdaptorCorrect {count : Nat}
     (windows : Nat → ArgoMAC.BitAdaptor.FixedKeyOracle)
@@ -89,14 +88,25 @@ theorem curveMembershipReleasesBridge
     bridgeKey mask r1 r2 oracles inputKey input inputOnCurve
 
 theorem biquadraticXCorrect
-    (c0 c1 c2 c4 : BaseField) (randomness : ArgoMAC.Biquadratic.XRandomness)
+    (c0 c1 c2 c3 c5 : BaseField) (randomness : ArgoMAC.Biquadratic.XRandomness)
     (oracles : ArgoMAC.Biquadratic.Oracles) (inputKey : ArgoMAC.InputMacKey)
     (input : AffineInput) :
     ArgoMAC.Biquadratic.evaluate oracles
-        (ArgoMAC.Biquadratic.garbleX c0 c1 c2 c4 randomness oracles inputKey)
+        (ArgoMAC.Biquadratic.garbleX c0 c1 c2 c3 c5 randomness oracles inputKey)
         input (inputKey.encodeAffine input) =
-      c0 + c1 * input.x + c2 * input.y + c4 * input.x ^ 2 :=
-  ArgoMAC.Biquadratic.evaluateEncodedX c0 c1 c2 c4 randomness oracles inputKey input
+      c0 + c1 * input.x + c2 * input.y + c3 * input.x * input.y +
+        c5 * input.y ^ 2 :=
+  ArgoMAC.Biquadratic.evaluateEncodedX c0 c1 c2 c3 c5 randomness oracles inputKey input
+
+theorem homogeneousDecodeBranches [FieldCertificate] (x y : BaseField)
+    (value : ArgoMAC.FieldMacToECMac.HomogeneousValue)
+    (xNonzero : x ≠ 0) (yNonzero : y ≠ 0) (zNonzero : value.z ≠ 0) :
+    ArgoMAC.Garbling.decodeHomogeneous { x := 0, y, z := 0 } = some 0 ∧
+      ArgoMAC.Garbling.decodeHomogeneous { x := 0, y := 0, z := 0 } = none ∧
+      ArgoMAC.Garbling.decodeHomogeneous { x, y, z := 0 } = none ∧
+      ArgoMAC.Garbling.decodeHomogeneous value =
+        decodePoint { x := value.x / value.z, y := value.y / value.z } := by
+  simp [ArgoMAC.Garbling.decodeHomogeneous, xNonzero, yNonzero, zNonzero]
 
 theorem fieldLayerMatchesRows [FieldCertificate]
     (rows : ArgoMAC.FieldMacToECMac.Rows)
@@ -134,11 +144,13 @@ theorem pipelineMatchesRows [FieldCertificate]
     input point decoded
 
 theorem fixedKeyCounts :
-    ArgoMAC.Pipeline.fixedKeyWindowCount = 2499 ∧
-      ArgoMAC.Pipeline.permutationCount = 12495 ∧
-      ArgoMAC.Pipeline.hashPermutationCount = 7497 ∧
-      ArgoMAC.Pipeline.padPermutationCount = 4998 :=
-  ⟨ArgoMAC.Pipeline.fixedKeyWindowCountValue,
+    ArgoMAC.Pipeline.pointDigitAdaptorsPerOutput = 13 ∧
+      ArgoMAC.Pipeline.digitAdaptorCount = 1188 ∧
+      ArgoMAC.Pipeline.fixedKeyWindowCount = 3564 ∧
+      ArgoMAC.Pipeline.permutationCount = 17820 ∧
+      ArgoMAC.Pipeline.hashPermutationCount = 10692 ∧
+      ArgoMAC.Pipeline.padPermutationCount = 7128 :=
+  ⟨rfl, rfl, ArgoMAC.Pipeline.fixedKeyWindowCountValue,
     ArgoMAC.Pipeline.permutationCountValue,
     ArgoMAC.Pipeline.hashPermutationCountValue,
     ArgoMAC.Pipeline.padPermutationCountValue⟩
@@ -154,13 +166,14 @@ theorem fixedKeyWindowLoads :
 #print axioms endomorphismRoot
 #print axioms digitEndomorphismsMatchScalar
 #print axioms base7StepCorrect
-#print axioms coordinateRowsMatchPointAddition
+#print axioms coordinateRowsUseRCB
 #print axioms digitAdaptorCorrect
 #print axioms fixedKeyRowCorrect
 #print axioms encPRFRoundTrip
 #print axioms encPRFTransformsSelectedLabels
 #print axioms curveMembershipReleasesBridge
 #print axioms biquadraticXCorrect
+#print axioms homogeneousDecodeBranches
 #print axioms fieldLayerMatchesRows
 #print axioms pipelineMatchesRows
 #print axioms fixedKeyCounts
