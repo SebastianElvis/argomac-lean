@@ -17,7 +17,7 @@
 \title{\vspace{-16mm}\textbf{Fast Complete BN254 Scalar Multiplication}\\
 \large Optimal recoding and complete RCB addition for ArgoMAC}
 \author{Kriterion research submission}
-\date{5 September 2026}
+\date{6 September 2026}
 
 \begin{document}
 \maketitle
@@ -408,10 +408,18 @@ Lean now proves the good-event law for the actual zero pad.
 One finite product equivalence exposes each accepted hash lift as its exact residue and quotient.
 The low digit has coefficient one, so its residue is an additive pivot.
 Thus, a uniform accepted-residue vector gives an exact uniform digit offset after any fixed translation.
-The actual good 	exttt{y10} and 	exttt{x9} hash vectors give the two real offsets.
+The actual good \texttt{y10} and \texttt{x9} hash vectors give the two real offsets.
 Their sum is the real zero pad.
-The next proof must connect the suffix complement to one complete public-table transport.
-It must prove the joint law of the zero pad, all ciphertext rows, and the retained oracle.
+Lean now proves that one gate's three hash reads and two pad reads are jointly uniform.
+The five fixed-key indices differ only in their slot field, so they are distinct.
+A five-slot swap schedule extracts all five outputs and preserves the uniform tape.
+Thus, the hash-based zero pad and the pad-based ciphertext row are independent on one gate.
+Lean also proves the general distinct-read tool.
+For any injective family of fixed-key indices, the joint permutation reads are uniform, with no bound on the count.
+The proof shows by induction that a schedule with distinct slots and distinct indices reads each entry at its slot.
+The window-sharing optimization reads one permutation at 91 labels per window, so the full read family is not index-injective.
+The joint transport therefore factors as independence across the 17,820 distinct window indices, times the within-window collision that the existing bad event already bounds.
+The next proof must package each window's read as one value, instantiate the distinct-read tool across windows, and compose the result with the coefficient transports and the collision bound.
 
 The complete row repairs the known perfect-correctness failure.
 The generic bounded bridge is complete.
