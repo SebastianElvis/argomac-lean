@@ -369,6 +369,102 @@ theorem map_uniform_fixedDaviesMeyerPadBlocks
   rw [map_uniform_fixedPadBlocks]
   exact map_uniformOfFintype_equivBetween (xorPadBlockTapeEquiv label)
 
+/-- This schedule reads the three hash and two pad permutations for one gate. -/
+def hashPadTapeSchedule (location : Pipeline.FixedKeyLocation)
+    (window : Nat) (label : Block) :
+    List (Pipeline.FixedKeyIndex × Block × (Fin 3 ⊕ Fin 2)) :=
+  [
+    (fixedKeyIndex location window (.hash 0), label, Sum.inl 0),
+    (fixedKeyIndex location window (.hash 1), label, Sum.inl 1),
+    (fixedKeyIndex location window (.hash 2), label, Sum.inl 2),
+    (fixedKeyIndex location window (.pad 0), label, Sum.inr 0),
+    (fixedKeyIndex location window (.pad 1), label, Sum.inr 1)
+  ]
+
+/-- This map reads one gate's five permutations into one hash-pad tape. -/
+def hashPadBlocks (oracle : PermutationOracle Pipeline.FixedKeyIndex Block)
+    (location : Pipeline.FixedKeyLocation) (window : Nat) (label : Block) :
+    (Fin 3 ⊕ Fin 2) → Block
+  | Sum.inl s => oracle.permutation (fixedKeyIndex location window (.hash s)) label
+  | Sum.inr s => oracle.permutation (fixedKeyIndex location window (.pad s)) label
+
+/-- The schedule tape contains the original five permutation outputs. -/
+theorem swapProgramHashPadTapeSchedule_snd
+    (oracle : PermutationOracle Pipeline.FixedKeyIndex Block)
+    (tape : (Fin 3 ⊕ Fin 2) → Block) (location : Pipeline.FixedKeyLocation)
+    (window : Nat) (label : Block) :
+    (swapProgramTapeScheduleEquiv (hashPadTapeSchedule location window label)
+      (oracle, tape)).2 =
+      hashPadBlocks oracle location window label := by
+  funext slot
+  cases slot with
+  | inl s =>
+      fin_cases s <;>
+        simp [hashPadTapeSchedule, hashPadBlocks, swapProgramTapeScheduleEquiv,
+          swapProgramTapeStepEquiv, Function.Involutive.toPerm,
+          swapProgramTapeStep, programPermutation, fixedKeyIndex]
+  | inr s =>
+      fin_cases s <;>
+        simp [hashPadTapeSchedule, hashPadBlocks, swapProgramTapeScheduleEquiv,
+          swapProgramTapeStepEquiv, Function.Involutive.toPerm,
+          swapProgramTapeStep, programPermutation, fixedKeyIndex]
+
+/-- Five fixed-gate permutation outputs are jointly uniform. -/
+theorem map_uniform_fixedHashPadBlocks
+    (location : Pipeline.FixedKeyLocation) (window : Nat) (label : Block) :
+    (PMF.uniformOfFintype
+      (PermutationOracle Pipeline.FixedKeyIndex Block)).map
+        (fun oracle => hashPadBlocks oracle location window label) =
+      PMF.uniformOfFintype ((Fin 3 ⊕ Fin 2) → Block) := by
+  let output : PermutationOracle Pipeline.FixedKeyIndex Block →
+      (Fin 3 ⊕ Fin 2) → Block :=
+    fun oracle => hashPadBlocks oracle location window label
+  rw [← map_uniform_prod_ignore_snd
+    (Second := (Fin 3 ⊕ Fin 2) → Block) output]
+  calc
+    (PMF.uniformOfFintype
+      (PermutationOracle Pipeline.FixedKeyIndex Block ×
+        ((Fin 3 ⊕ Fin 2) → Block))).map (output ∘ Prod.fst) =
+      (PMF.uniformOfFintype
+        (PermutationOracle Pipeline.FixedKeyIndex Block ×
+          ((Fin 3 ⊕ Fin 2) → Block))).map
+          (fun sample => (swapProgramTapeScheduleEquiv
+            (hashPadTapeSchedule location window label) sample).2) := by
+        congr 1
+        funext sample
+        exact (swapProgramHashPadTapeSchedule_snd sample.1 sample.2
+          location window label).symm
+    _ = PMF.uniformOfFintype ((Fin 3 ⊕ Fin 2) → Block) :=
+      map_uniform_swapProgramTapeSchedule_snd _
+
+/-- This equivalence joins the two Davies--Meyer groups of one gate. -/
+def hashPadDaviesMeyerEquiv (label : Block) :
+    ((Fin 3 ⊕ Fin 2) → Block) ≃ ((Fin 3 → Block) × (Fin 2 → Block)) :=
+  (Equiv.sumArrowEquivProdArrow (Fin 3) (Fin 2) Block).trans
+    ((xorHashBlockTapeEquiv label).prodCongr (xorPadBlockTapeEquiv label))
+
+/-- One gate's hash blocks and pad blocks are jointly uniform after feed-forward. -/
+theorem map_uniform_fixedDaviesMeyerHashPadBlocks
+    (location : Pipeline.FixedKeyLocation) (window : Nat) (label : Block) :
+    (PMF.uniformOfFintype
+      (PermutationOracle Pipeline.FixedKeyIndex Block)).map
+        (fun oracle =>
+          ((fun s : Fin 3 => oracle.permutation
+              (fixedKeyIndex location window (.hash s)) label ^^^ label),
+            (fun s : Fin 2 => oracle.permutation
+              (fixedKeyIndex location window (.pad s)) label ^^^ label))) =
+      PMF.uniformOfFintype ((Fin 3 → Block) × (Fin 2 → Block)) := by
+  rw [show (fun oracle : PermutationOracle Pipeline.FixedKeyIndex Block =>
+      ((fun s : Fin 3 => oracle.permutation
+          (fixedKeyIndex location window (.hash s)) label ^^^ label),
+        (fun s : Fin 2 => oracle.permutation
+          (fixedKeyIndex location window (.pad s)) label ^^^ label))) =
+      hashPadDaviesMeyerEquiv label ∘
+        (fun oracle => hashPadBlocks oracle location window label) from rfl]
+  rw [← PMF.map_comp]
+  rw [map_uniform_fixedHashPadBlocks]
+  exact map_uniformOfFintype_equivBetween (hashPadDaviesMeyerEquiv label)
+
 /-- This map splits one ciphertext into its two blocks. -/
 def splitCiphertextBlocks (value : BitAdaptor.Ciphertext)
     (index : Fin 2) : Block :=
