@@ -15,7 +15,7 @@
 \renewcommand{\arraystretch}{1.15}
 
 \title{\vspace{-16mm}\textbf{Fast Complete BN254 Scalar Multiplication}\\
-\large Optimal recoding and complete RCB addition for ArgoMAC}
+\large Twelve optimisations for ArgoMAC, with specification, security, and speedup}
 \author{Kriterion research submission}
 \date{6 September 2026}
 
@@ -23,19 +23,92 @@
 \maketitle
 
 \begin{abstract}
-The ArgoMAC baseline uses an incomplete point-addition law and 92 digits in base $2-\omega$.
-This report gives a complete 91-digit construction for BN254 G1.
-An exact Eisenstein-norm proof establishes the digit bound.
-A second Lean proof establishes complete Renes--Costello--Batina addition.
-It covers ordinary addition, doubling, and inverse addition.
-The construction uses the minimum adaptor count in the fixed bidegree $(2,2)$ Bosma--Lenstra family.
-Lean 4.24 checks these results without a new axiom or compiler-trusted evaluation.
-It also checks the 508-bit Lamport label order.
-The matching Rust code uses the same law and garbles independent rows with Rayon.
+This report presents twelve changes to the ArgoMAC garbled circuit for BN254 G1 scalar multiplication.
+Each change has its own section.
+Each section states whether the change alters the specification, gives the construction detail, gives the security analysis, and reports the measured speedup.
+Three changes are in the Lean construction: one shared garbling pass, a proved 91-digit recoding, and complete Renes--Costello--Batina addition.
+Nine changes are in the Rust implementation.
+The Lean benchmark median falls from 989 ms to 231 ms.
+The Rust protocol encode mean falls from 81.309 ms to 68.190 ms.
+Lean 4.24 checks correctness, the digit bound, the complete law, the topology, and the Lamport label order without a new axiom.
+The adaptive-privacy theorem is not complete; Section~\ref{sec:formal} states its exact status.
 \end{abstract}
 
-\section{Contribution}
+\section{Summary}
 
+Table~\ref{tab:summary} lists every change.
+The Lean column refers to the challenge construction and its proof.
+The Rust column refers to the BaBe implementation.
+A specification change is a change to the paper construction, the wire format, the randomness derivation, or the evaluator acceptance rule.
+A change without a specification change computes the same function with the same public values.
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{llllr}
+\toprule
+\S & Change & Layer & Spec change & Measured effect \\
+\midrule
+\ref{sec:o1} & Shared garbling pass & Lean & No & Lean 989 to 160 ms \\
+\ref{sec:o2} & Four-corner 91-digit recoding & Lean, Rust & Yes: digit count & One fewer output row \\
+\ref{sec:o3} & Complete RCB addition & Lean, Rust & Yes: row law, decode & Correctness repair; Lean 160 to 231 ms \\
+\ref{sec:o4} & Parallel rows with fixed RNG streams & Rust & Yes: randomness derivation & Row 15.934 to 3.845 ms \\
+\ref{sec:o5} & Fixed AES window view reuse & Rust & No & Within noise \\
+\ref{sec:o6} & SHA-256 prefix reuse & Rust & No & Row 3.841 to 3.754 ms \\
+\ref{sec:o7} & Specialized hash-to-field reduction & Rust & No & One worker 20.858 to 19.906 ms \\
+\ref{sec:o8} & Four-limb field XOR & Rust & No & Row 3.713 to 3.390 ms \\
+\ref{sec:o9} & Direct hash-block reduction & Rust & No & Row 3.507 to 3.351 ms \\
+\ref{sec:o10} & One-block KDF input & Rust & Yes: KDF layout, version 5 & Row 3.375 to 3.081 ms \\
+\ref{sec:o11} & Paired KDF digests & Rust & Yes: KDF layout, version 6 & Row 3.121 to 2.876 ms \\
+\ref{sec:o12} & Noncanonical coordinate rejection & Rust & Yes: acceptance rule & None; hardening \\
+\bottomrule
+\end{tabular}
+\caption{All changes. Each Rust row time is one adjacent A/B pair from that change's own benchmark run, so the baselines drift between rows.}
+\label{tab:summary}
+\end{table}
+
+All Rust times use an Apple M5 with ARMv8 AES, Rust 1.94.0, and 100 Criterion samples.
+Row times use ten Rayon workers unless the text says one worker.
+All Lean times are 21-run medians of the direct-table benchmark on the same machine.
+
+\section{Shared garbling pass}
+\label{sec:o1}
+
+\subsection{Specification change}
+None.
+The logical circuit, the public table, the fixed-key oracle indices, the topology, the input labels, and the assumptions do not change.
+
+\subsection{Detail}
+The baseline executes the same pure garbling operations six times in its dominant layer.
+It computes each bit-adaptor pair twice.
+It computes each point row three times.
+The shared pass computes each bit pair once and each point row once.
+It then reuses the values.
+The fixed-permutation application count falls from 6,322,060 to 1,057,910 for the original 92-row, nine-adaptor circuit.
+
+\subsection{Security analysis}
+Lean proves that both changed functions equal their baseline definitions for all inputs.
+Thus, the public table and the evaluation function are identical.
+The adversary view does not change.
+No security argument depends on this change.
+
+\subsection{Speedup}
+The Lean median fell from 989 ms to 160 ms.
+This is a 6.18 times speedup.
+It is an 83.8 percent reduction.
+This measurement uses the original 92-row incomplete law, before Sections~\ref{sec:o2} and~\ref{sec:o3}.
+
+\section{Four-corner 91-digit recoding}
+\label{sec:o2}
+
+\subsection{Specification change}
+Yes.
+The scalar decomposition uses 91 fixed positions instead of 92.
+The digit alphabet, the endomorphism, and the input-label shape do not change.
+The Rust constant \texttt{KAPPA} changes from 92 to 91.
+Old artifacts are not wire-compatible.
+
+\subsection{Detail}
 Let $r$ be the BN254 scalar modulus.
 Let $\omega$ be the nontrivial cube root used by the G1 endomorphism.
 Set $\beta=2-\omega$.
@@ -44,16 +117,6 @@ The digit alphabet is
   D=\{0,\pm1,\pm\omega,\pm\omega^2\}.
 \]
 The norm of $\beta$ is seven.
-
-The baseline uses 92 fixed positions.
-The new construction uses 91 fixed positions for every scalar.
-It keeps the same alphabet and input-label shape.
-It also replaces the exceptional affine row with one complete homogeneous row.
-The complete row increases the per-row adaptor count from nine to 13.
-Shared garbling passes and parallel row execution offset this extra work.
-
-\section{Four-corner GLV recoding}
-
 Use the Eisenstein norm
 \[
   Q(a,b)=a^2-ab+b^2.
@@ -69,52 +132,30 @@ The two GLV kernel vectors are
 \[
   v_1=(-A,d),\qquad v_2=(-d,-C).
 \]
-
 Arkworks divides the two negative quotient numerators toward zero.
 Thus, its GLV state is the floor representative $z_0$ used by the proof.
 The selector checks
 \[
   z_0,\quad z_0+v_1,\quad z_0+v_2,\quad z_0+v_1+v_2.
 \]
-Each shift is in the reconstruction kernel.
-Thus, every candidate represents the same scalar.
-
+Each shift is in the reconstruction kernel, so every candidate represents the same scalar.
 For quotient remainders $u,v\in[0,r)$, scaling maps these four states to the four corners of one Eisenstein cell.
-The two triangle lemmas show that one corner satisfies
-\[
-  3Q(a,b)\le r.
-\]
+Two triangle lemmas show that one corner satisfies $3Q(a,b)\le r$.
 This is the exact covering-radius step.
-
-\section{Exact 91-round bound}
 
 One recurrence round selects a unit digit and divides by $\beta$.
 For a state with $Q(a,b)\le m$, the selected digit gives
 \[
-  Q(a-u_d,b-v_d)\le m+1+\lfloor\sqrt{4m}\rfloor.
+  Q(a-u_d,b-v_d)\le m+1+\lfloor\sqrt{4m}\rfloor,
 \]
-Exact division gives
-\[
-  Q(a-u_d,b-v_d)=7Q(a',b').
-\]
-
+and exact division gives $Q(a-u_d,b-v_d)=7Q(a',b')$.
 Define the inverse safe bound
 \begin{align*}
  B(0)&=2,\\
  B(n+1)&=7B(n)+1-\left\lfloor\sqrt{4(7B(n)+1)}\right\rfloor.
 \end{align*}
-Lean proves the generic induction rule
-\[
-  Q(a,b)\le B(n)\Longrightarrow \mathsf{after}(n+1,(a,b))=(0,0).
-\]
-It also checks
-\begin{align*}
- B(90)&=8072890822786049911192470628436961768360750887255955910449276353626847573707,\\
- r&\le3B(90).
-\end{align*}
-The numeric proof uses ten-round kernel-checked checkpoints.
-It does not use \texttt{native\_decide}.
-
+Lean proves $Q(a,b)\le B(n)\Longrightarrow \mathsf{after}(n+1,(a,b))=(0,0)$.
+It also checks $r\le3B(90)$ with ten-round kernel-checked checkpoints and no \texttt{native\_decide}.
 The main Lean results are:
 \begin{itemize}
   \item \texttt{shiftedInitialCorrect};
@@ -124,87 +165,91 @@ The main Lean results are:
   \item \texttt{shortInitialTerminates91};
   \item \texttt{shortInitialCorrect}.
 \end{itemize}
-The axiom audit reports only \texttt{propext}, \texttt{Classical.choice}, and \texttt{Quot.sound}.
 
-\section{Optimality}
+Lean also checks $7^{90}<r<7^{91}$.
+A fixed 90-position string over seven symbols has at most $7^{90}$ values, so 91 is optimal for this alphabet.
 
-Lean checks
-\[
-  7^{90}<r<7^{91}.
-\]
-A fixed 90-position string over seven symbols has at most $7^{90}$ values.
-It cannot represent all $r$ scalars.
-Thus, 91 is optimal for this fixed alphabet.
+\subsection{Security analysis}
+Every scalar uses exactly 91 positions.
+Thus, the public circuit has 91 output rows for every scalar, and the topology does not reveal the scalar.
+The Rust selector always runs all four 91-round tests.
+It selects the first terminating candidate with \texttt{subtle::Choice} and has no secret-dependent early return.
+Lean proves that every tested coordinate fits a signed 128-bit integer, so the fixed-width arithmetic cannot overflow.
+The report does not claim compiler-level constant time.
+The recoding is a public deterministic function of the secret scalar with the same alphabet, so the hybrid proof structure of the paper does not change.
+
+\subsection{Speedup}
+The dominant layer has 91 rows instead of 92.
+This removes one row of 13 digit adaptors and 3,302 bit adaptors.
+The per-row cost is unchanged.
+The change also removes a sampled termination claim from the trust base and replaces it with a kernel-checked proof.
 
 \section{Complete homogeneous addition}
+\label{sec:o3}
 
+\subsection{Specification change}
+Yes.
+The point row uses Algorithm~7 of Renes, Costello, and Batina in homogeneous coordinates instead of the exceptional affine law.
+The row polynomials, the coefficient support flags, and the decode rule change.
+The Rust constant \texttt{PRF\_VERSION} rises to 6 and binds the law into the setup commitment.
+
+\subsection{Detail}
 Let the hidden offset be $K=(A:B:C)$.
 Let $(u,v)$ be the selected endomorphism image of the evaluator input.
-Use homogeneous coordinates for
-\[
-  Y^2Z=X^3+3Z^3.
-\]
-An affine point is $(x:y:1)$.
-The group identity is $(0:1:0)$.
-
-RCB Algorithm 7 gives these three polynomials:
+Use homogeneous coordinates for $Y^2Z=X^3+3Z^3$.
+An affine point is $(x:y:1)$ and the identity is $(0:1:0)$.
+The three row polynomials are
 \begin{align*}
  X={}&-9AB-18BCu-18ACv+(B^2-9C^2)uv+ABv^2,\\
  Y={}&-81C^2+27A^2u+27ACu^2+B^2v^2,\\
  Z={}&9BC+(B^2+9C^2)v+BCv^2+3A^2uv+3ABu^2.
 \end{align*}
 One fresh nonzero value $\rho$ multiplies all three coordinates.
-This common factor preserves the represented projective point.
 The zero digit returns $\rho(A,B,C)$.
-
 The decoder keeps $Z$ until the final projection.
-For $Z\ne0$, it validates $(X/Z,Y/Z)$ and returns that point.
-For $Z=0$, it accepts only $X=0$ and $Y\ne0$.
-This case returns the group identity.
+For $Z\ne0$ it validates $(X/Z,Y/Z)$.
+For $Z=0$ it accepts only $X=0$ and $Y\ne0$ and returns the identity.
 It rejects all other zero-denominator triples.
 
-Lean proves the homogeneous curve equation.
-It proves that the output is nonzero and projectively nonsingular.
-It then proves that projective decode equals Mathlib group addition for every valid affine pair.
+The old affine law fails perfect correctness.
+For scalar 2, output row 1 has digit \texttt{.one}.
+Select the valid input equal to that row offset.
+The old denominator is zero, the unchecked affine conversion becomes $(0,0)$, and decoding fails.
+
+Lean proves the homogeneous curve equation, that the output is nonzero and projectively nonsingular, and that projective decode equals Mathlib group addition for every valid affine pair.
 The proof has separate cases for different x-coordinates, doubling, and inverse inputs.
-The main results are:
-\begin{itemize}
-  \item \texttt{outputNonsingular};
-  \item \texttt{outputRepresentsSum};
-  \item \texttt{decodeHomogeneous\_eq\_toAffine};
-  \item \texttt{decodeEvaluateRowSome};
-  \item \texttt{decodeEvaluateRowNone};
-  \item \texttt{perfectCorrectness}.
-\end{itemize}
-The axiom audit reports only \texttt{propext}, \texttt{Classical.choice}, and \texttt{Quot.sound}.
+The main results are \texttt{outputNonsingular}, \texttt{outputRepresentsSum}, \texttt{decodeHomogeneous\_eq\_toAffine}, \texttt{decodeEvaluateRowSome}, \texttt{decodeEvaluateRowNone}, and \texttt{perfectCorrectness}.
 
-\section{Adaptor optimum}
-
-The complete Bosma--Lenstra family has projective parameters
-$[\alpha:\beta:\gamma]$.
-Completeness requires $\beta\ne0$.
+The complete Bosma--Lenstra family has projective parameters $[\alpha:\beta:\gamma]$ with $\beta\ne0$.
 Normalize $\beta=1$.
-Under the exact \texttt{Biquadratic} support rule, the adaptor counts are
-\[
- D(0,0)=13,\qquad
- D(0,\gamma)=14\text{ for }\gamma\ne0,\qquad
- D(\alpha,\gamma)=15\text{ for }\alpha\ne0.
-\]
-Thus, RCB parameters $[0:1:0]$ give the unique minimum of 13.
-This result covers fixed bidegree $(2,2)$ laws in the current masking architecture.
-
-A second lower bound covers private role-preserving linear rows.
-A row with $t$ scalar adaptors exposes $14+t$ selected field values.
-Its adaptor randomness has dimension at most $2t-2$.
-Only the three output coordinates can stay unmasked.
-Thus, $2t-2\ge 11+t$, so $t\ge13$.
+Under the exact \texttt{Biquadratic} support rule the adaptor counts are $D(0,0)=13$, $D(0,\gamma)=14$ for $\gamma\ne0$, and $D(\alpha,\gamma)=15$ for $\alpha\ne0$.
+Thus, the RCB parameters $[0:1:0]$ give the unique minimum of 13.
+A second bound covers private role-preserving linear rows.
+A row with $t$ scalar adaptors exposes $14+t$ selected field values and has adaptor randomness of dimension at most $2t-2$.
+Only the three output coordinates can stay unmasked, so $2t-2\ge 11+t$ and $t\ge13$.
 A correct ten-adaptor sharing attempt violates this bound and exposes four extra coefficient invariants.
-The current row reaches 13.
-This result does not exclude a nonlinear garbling architecture.
 
-\section{Circuit cost}
+\subsection{Security analysis}
+The change repairs perfect correctness.
+BN254 G1 has cofactor one and odd prime order, so it has no point of order two.
+The RCB exceptional line $Y=0$ does not meet this group.
+Thus, the law covers doubling, inverse addition, and identity inputs for all valid G1 points.
+The common factor $\rho$ randomizes the homogeneous representation, so the row does not reveal the offset scale.
+Every support flag is public and independent of the scalar.
+The $Z=0$ branch of the decoder reveals only that the decoded output is the group identity.
+The 13-adaptor row is optimal in the fixed bidegree $(2,2)$ family and in the private role-preserving linear model.
+The row exposes no coefficient function beyond the three outputs.
 
-\begin{center}
+\subsection{Speedup}
+This change increases work.
+Each row uses 13 digit adaptors instead of nine.
+Table~\ref{tab:cost} gives the exact counts.
+The Lean median rises from 160 ms to 231 ms.
+The complete circuit remains 4.28 times faster than the 989 ms baseline.
+The HMAC table grows by 2,970,240 bytes to 9,668,659 bytes.
+
+\begin{table}[h]
+\centering
 \begin{tabular}{lrrr}
 \toprule
 Item & Original 92-row call & Complete 91-row call & Change \\
@@ -216,64 +261,226 @@ Fixed-permutation applications & 6,322,060 & 1,508,760 & $-4,813,300$ \\
 Public permutation instances & 12,495 & 17,820 & $+5,325$ \\
 \bottomrule
 \end{tabular}
-\end{center}
+\caption{Circuit cost. The first column counts repeated calls in the unoptimized baseline. The last column uses one shared pass for each bit and point row.}
+\label{tab:cost}
+\end{table}
 
-The first column counts repeated calls in the unoptimized baseline.
-The last column uses one shared pass for each bit and point row.
-The public instance count increases because the complete law needs more live support.
+\section{Parallel rows with fixed RNG streams}
+\label{sec:o4}
 
-The Lean direct-table benchmark used 21 measured runs on Apple M5.
-The complete construction has a 231 ms median.
-The original baseline has a 989 ms median.
-The complete construction is 4.28 times faster.
-It reduces the median by 76.6 percent.
-
-\section{Rust row parallelism}
-
-The Rust implementation allocates one job for each output row.
-It allocates the three child nonce domains before Rayon starts.
-It samples one fresh 32-byte ChaCha12 root from the caller RNG.
-Row $j$ uses stream
+\subsection{Specification change}
+Yes, in the randomness derivation.
+The wire format does not change.
+The garbler samples one fresh secret 32-byte root from the caller RNG.
+Row $j$ uses ChaCha12 stream
 \[
   \mathtt{0x666d3265635f6d61}+j
 \]
 from word position zero.
+The code allocates the three child nonce domains of every row before Rayon starts.
+The specification records this schedule.
+
+\subsection{Detail}
+The Rust implementation allocates one job for each of the 91 output rows.
+Release builds execute the jobs with Rayon.
+Debug builds use the same RNG and nonce schedule in serial order so the label-reuse diagnostic stays complete.
 Indexed collection keeps the row order.
-Debug builds use the same RNG and nonce schedule in serial order.
-Release builds use Rayon.
-
+Jobs borrow the output keys and do not copy secret keys into a second vector.
 The root seed is erased after row construction.
-Jobs borrow output keys.
-They do not copy those secret keys into a second vector.
-Fixed Boolean arrays replace heap-based coefficient index sets.
-One byte packs each fixed-key level and digest-pair index.
-Eight injective 54-byte inputs derive the 15 AES keys.
-Each input and its padding fit in one SHA-256 compression block.
-Each 256-bit digest supplies two 128-bit keys; one final half is unused.
-The 384-bit hash-to-field reducer reads the three AES blocks directly.
-It avoids generic slice loops and a 48-byte staging copy.
-The 256-bit field pad uses four explicit little-endian limb XOR operations.
-Tests compare one-worker and four-worker tables.
+Fixed Boolean arrays replace heap-based coefficient index sets; this removes 27 net lines and 273 tree constructions per call.
+
+\subsection{Security analysis}
+Worker order cannot change the nonce domains, the caller RNG state, the row randomness, or the serialized row order.
+Tests compare one-worker and four-worker tables and the final caller RNG state.
 A second test compares all 273 allocated child nonces with the serial schedule.
+The field-row seed is secret.
+The pair of field-row seed and stream number must not repeat, and the security policy now states this requirement next to the existing seed, pre-seed, and nonce requirements.
+Under this requirement the row randomness is a fresh pseudorandom stream per row, which is the same assumption the serial code already makes on its single stream.
 
-On the same Apple M5, the ARMv8 AES benchmarks used 100 Criterion samples.
-The incomplete 92-row serial baseline estimate was 15.934 ms.
-The complete 91-row, 10-worker row mean is 2.876 ms.
-Its 95 percent interval is 2.861 to 2.893 ms.
-The complete row stage is 5.54 times faster than the serial baseline.
-Direct field-limb XOR lowered its adjacent row mean by 8.7 percent.
-Direct hash-block reduction then lowered its adjacent mean by 4.5 percent.
-The one-block KDF lowered its adjacent mean by a further 8.7 percent.
-Digest pairing then lowered its adjacent mean by 7.9 percent.
+\subsection{Speedup}
+The serial 92-row incomplete baseline row estimate is 15.934 ms.
+The complete 91-row, ten-worker row mean after this change is 3.845 ms.
+This is 4.14 times faster.
+A shared base row RNG did not improve this time and was discarded.
 
-The protocol \texttt{encode} mean is 68.190 ms.
-Its 95 percent interval is 67.963 to 68.581 ms.
+\section{Fixed AES window view reuse}
+\label{sec:o5}
+
+\subsection{Specification change}
+None.
+The fixed AES keys, inputs, and outputs do not change.
+
+\subsection{Detail}
+Each digit adaptor creates one fixed AES window view for each 91-bit chunk instead of one view per bit.
+The view holds the 15 expanded keys of that window.
+
+\subsection{Security analysis}
+The change reorders allocation only.
+The same keys encrypt the same labels.
+
+\subsection{Speedup}
+The measured row mean changed from 3.845 ms to 3.841 ms.
+This is within noise.
+A full AES block batching variant was slower at 4.578 ms and was discarded.
+
+\section{SHA-256 prefix reuse}
+\label{sec:o6}
+
+\subsection{Specification change}
+None.
+Every derived key byte is identical.
+
+\subsection{Detail}
+The key derivation for the 15 fixed AES keys of one window shares one SHA-256 prefix for the bucket and role fields.
+The code hashes the prefix once and forks the state for each key.
+
+\subsection{Security analysis}
+A test compares every derived cipher with the original full KDF input.
+The output is the same function of the same input, so the key distribution does not change.
+
+\subsection{Speedup}
+The row mean fell from 3.841 ms to 3.754 ms.
+This is a 2.3 percent reduction.
+
+\section{Specialized hash-to-field reduction}
+\label{sec:o7}
+
+\subsection{Specification change}
+None.
+The 384-bit integer and its reduction modulo $p$ do not change.
+
+\subsection{Detail}
+The reducer assembles the fixed 48-byte hash input as a 17-byte low part and a 31-byte high part directly into field limbs.
+It replaces the generic slice loop.
+
+\subsection{Security analysis}
+All 384 one-bit inputs and the prior edge vectors match the Arkworks reduction.
+A compile-time constant for $2^{136}$ in $\mathbb{F}_q$ did not help and was discarded.
+
+\subsection{Speedup}
+The one-worker row mean fell from 20.858 ms to 19.906 ms.
+This is a 4.6 percent reduction.
+The ten-worker row mean is 3.630 ms.
+
+\section{Four-limb field XOR}
+\label{sec:o8}
+
+\subsection{Specification change}
+None.
+
+\subsection{Detail}
+The 256-bit field plaintext is XORed into its pad as four explicit little-endian 64-bit limbs.
+This replaces nested base-field, limb, and byte loops.
+
+\subsection{Security analysis}
+XOR is bitwise, so the limb order changes no output bit.
+The ciphertext row is the same value.
+
+\subsection{Speedup}
+The row mean fell from 3.713 ms to 3.390 ms.
+Criterion reports an 8.7 percent improvement.
+A native-endian 128-bit Davies--Meyer feed-forward XOR was 5.5 percent slower and was discarded.
+
+\section{Direct hash-block reduction}
+\label{sec:o9}
+
+\subsection{Specification change}
+None.
+
+\subsection{Detail}
+The three AES hash blocks feed the field reduction directly.
+The code no longer copies them into a 48-byte staging array first.
+
+\subsection{Security analysis}
+The specialized limb split preserves every bit of the previous little-endian integer.
+The hash-to-field value is identical.
+
+\subsection{Speedup}
+The row mean fell from 3.507 ms to 3.351 ms.
+Criterion reports a 4.5 percent improvement.
+The one-worker row mean is 18.411 ms.
+
+\section{One-block KDF input}
+\label{sec:o10}
+
+\subsection{Specification change}
+Yes.
+The fixed-key KDF input packs the level, sub-bucket, role, and slot into one injective byte.
+The complete input is 54 bytes.
+\texttt{PRF\_VERSION} 5 binds the new domain and schedule into the setup commitment.
+
+\subsection{Detail}
+The 54-byte input and its SHA-256 padding fit in one compression block.
+The metadata byte packs the level into bits 0--2 and the window-major key index into bits 3--5.
+A contiguous 54-byte buffer did not improve the benchmark further and was discarded.
+
+\subsection{Security analysis}
+The valid ranges make each digest input distinct.
+Domain separation is preserved because the version tag and the injective metadata map distinct keys to distinct random-oracle inputs.
+The KDF is modeled as a random oracle, so each key is an independent uniform value as before.
+
+\subsection{Speedup}
+The row mean fell from 3.375 ms to 3.081 ms.
+This is an 8.7 percent reduction.
+The one-worker row mean is 16.950 ms.
+
+\section{Paired KDF digests}
+\label{sec:o11}
+
+\subsection{Specification change}
+Yes.
+One SHA-256 digest supplies two 128-bit AES keys.
+Eight digests derive the 15 keys of one window.
+\texttt{PRF\_VERSION} 6 and the domain tag \texttt{afk/6} bind this schedule.
+
+\subsection{Detail}
+For flat key index $i$, set $j=\lfloor i/2\rfloor$ and $h=i\bmod2$.
+Key $i$ is the $h$-th 128-bit half of digest $j$.
+The second half of the last digest is unused.
+Skipping its AES key expansion did not change the benchmark and was not adopted.
+
+\subsection{Security analysis}
+The map from each flat key index to its digest pair and half is injective.
+In the random-oracle model both 128-bit halves of each 256-bit digest are independent uniform values.
+Thus, the 15 keys remain independent and uniform.
+
+\subsection{Speedup}
+The row mean fell from 3.121 ms to 2.876 ms.
+Criterion reports a 7.9 percent improvement.
+The one-worker row mean is 15.348 ms.
+
+\section{Noncanonical coordinate rejection}
+\label{sec:o12}
+
+\subsection{Specification change}
+Yes, in the evaluator acceptance rule.
+The checked evaluator rejects a 254-bit coordinate half that is not less than $p$ before field reduction.
+It then checks the curve equation before it evaluates the HMAC table.
+
+\subsection{Detail}
+A regression test uses $x=p+1$ and $y=2$.
+Reduction would otherwise map this input to the valid generator $(1,2)$.
+The Lean public wrapper uses the canonical \texttt{AffineInput} and proves that its 508 encoding labels match \texttt{affineLamportBits} in x-then-y order.
+
+\subsection{Security analysis}
+The signed raw bits, the proof-derived canonical binding, the checked gadget path, and the final message-hash check must all agree for decryption to succeed.
+A noncanonical encoding can no longer alias a different valid point.
+
+\subsection{Speedup}
+None.
+The change is a hardening.
+
+\section{End-to-end results}
+
+The complete row stage is 5.54 times faster than the serial baseline: 2.876 ms against 15.934 ms.
+The 95 percent interval of the final row mean is 2.861 to 2.893 ms.
+The protocol \texttt{encode} mean is 68.190 ms with a 95 percent interval of 67.963 to 68.581 ms.
 The comparable baseline is 81.309 ms.
 The complete implementation reduces this time by 16.1 percent.
-Its HMAC table has 9,668,659 bytes.
-This is 2,970,240 bytes larger than the incomplete 91-row table.
+The Lean direct-table median is 231 ms against 989 ms, which is 4.28 times faster.
 
-\section{Security scope}
+\section{Formal verification status}
+\label{sec:formal}
 
 The following invariants stay fixed:
 \begin{itemize}
