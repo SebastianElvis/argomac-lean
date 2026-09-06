@@ -482,177 +482,91 @@ The Lean direct-table median is 231 ms against 989 ms, which is 4.28 times faste
 \section{Formal verification status}
 \label{sec:formal}
 
-The following invariants stay fixed:
+This section states what Lean 4.24 checks, what remains open, and what the companion challenge change fixes.
+Every theorem named below passes the axiom audit with only \texttt{propext}, \texttt{Classical.choice}, and \texttt{Quot.sound}.
+The proof adds no \texttt{sorry}, no author axiom, and no \texttt{native\_decide}.
+
+\subsection{Closed properties}
+
 \begin{itemize}
-  \item Every candidate reconstructs the same scalar modulo $r$.
-  \item Every public circuit has exactly 91 output positions.
-  \item The digit alphabet does not change.
-  \item The input keeps 508 Lamport label positions.
-  \item The fixed-key window loads stay 91, 91, and 72.
-  \item Every support flag is public and independent of the scalar.
-  \item One nonzero factor scales all three homogeneous coordinates.
-  \item Each row uses a separate nonce subtree and RNG stream.
-  \item Worker order cannot change the table or caller RNG state.
+  \item \textbf{Correctness.} \texttt{perfectCorrectness} proves that every valid canonical input and every successful garbling run decodes to the scalar multiple (Section~\ref{sec:o3}).
+  \item \textbf{Digit bound.} \texttt{shortInitialTerminates91} and \texttt{shortInitialCorrect} prove that the four-corner recoding terminates in 91 rounds and reconstructs the scalar (Section~\ref{sec:o2}).
+  \item \textbf{Topology.} Every scalar gives 91 output positions and 508 Lamport label positions, so the public topology is constant.
+  \item \textbf{Lamport compatibility.} \texttt{Lamport.compatible} proves that the encoding key holds the 508 label pairs in x-then-y order and that encoding selects the label of each bit of \texttt{affineLamportBits}.
+  \item \textbf{Adaptor optimum.} The 13-adaptor RCB row is minimal in the fixed bidegree $(2,2)$ family and in the private role-preserving linear model (Section~\ref{sec:o3}).
 \end{itemize}
 
-The Rust selector uses four fixed 91-round tests and \texttt{subtle::Choice}.
-This gives a fixed iteration count.
-Lean proves that every tested coordinate fits a signed 128-bit integer.
-The report does not claim compiler-level constant time.
+\subsection{Adaptive privacy: proved components}
 
-The Rust checked evaluator rejects a coordinate that is at least the base-field modulus before reduction.
-It then checks the curve equation.
-A regression test uses $x=p+1$ and $y=2$.
-Reduction would otherwise map this input to the valid generator $(1,2)$.
+The 100-bit adaptive-privacy theorem is not complete.
+Lean proves the generic reduction and most construction-specific components.
+The remaining gap is one distributional transport, stated in the next subsection.
 
-Lean proves that the encoding key contains the 508 Lamport label pairs in x-then-y order.
-It proves that encoding selects the label for each bit of \texttt{affineLamportBits}.
-The theorem is \texttt{Lamport.compatible}.
+\textbf{Programming laws.}
+Fresh permutation and random-oracle programming are involutions on a finite joint tape.
+Each map sends $(O,t)$ to the programmed oracle and the old value $O(x)$, so each preserves the uniform joint PMF exactly.
+The permutation law composes over every fixed finite target-tape schedule.
+Both laws preserve the uniform fiber of oracles that match a fixed query transcript.
 
-Lean proves exact joint-tape laws for fresh permutation and random-oracle programming.
-Each map sends $(O,t)$ to the programmed oracle and the old value $O(x)$.
-Each map is an involution on a finite sample space.
-Thus, each map preserves the uniform joint PMF exactly.
-Programming a fixed output alone does not preserve uniformity.
-The permutation law also composes over every fixed finite target-tape schedule.
-Both oracle laws preserve the uniform fiber of fresh oracles that match a fixed query transcript.
+\textbf{Adversary lift and coupling.}
 Lean lifts an exact handler equivalence through every bounded adversary oracle program.
-Exact replay transports each real trace to the recording handler and preserves its result, query list, count, and final state.
 A shared-sample coupling gives both traced marginals, equal results and query lists, and related final states.
-Its structural form composes both adversary phases through an exact related-state bridge with zero result-disagreement mass.
-The bounded form accepts a bridge that returns an exact result or records a bad event.
-It keeps both marginals exact by using an independent coupling only after a bad event.
-Lean proves that every result disagreement implies the bad flag.
-It also proves that the final bad mass equals the bridge bad probability.
-The final coupling theorem bounds the result advantage by that probability.
-The permutation and hash involutions extend to the complete shared simulator state.
-Fresh state swaps preserve every shared transcript and label invariant.
-Each safe ideal-oracle query commutes with the matching full-state swap.
-Thus, every path-safe bounded adversary program commutes with either swap in exact PMF equality.
-Lean proves the exact mass of every finite forbidden block set.
-A set with at most $k$ values has mass at most $k\cdot 2^{-128}$.
-The two-point collision event therefore has mass at most $2^{-127}$.
-Lean records each reached adversary query and its state.
-The trace length is at most its indexed query budget.
-Traced real and ideal games erase exactly to the challenge PMFs.
-Each gives zero mass to paths above the sum of both adversary budgets.
-If each step forbids at most $k$ blocks, its collision schedule has mass at most $qk\cdot 2^{-128}$.
-An exact coupling lemma converts disagreement-event mass to the challenge's real-valued advantage.
-A graph coupling maps each real trace to one ideal trace and proves both marginals.
-A final generic theorem reduces the complete adaptive property to this trace transport and its Boolean change event.
-Lean also bounds this change event by any containing reached-collision event.
-The gate programmer accepts an ordered selected-gate schedule.
-It preserves the shared invariant and any prior collision flag.
-Every reached step is fresh unless the final state records a collision.
-It counts all selected slots exactly.
-A false-bit gate adds three fixed-key records, and a true-bit gate adds two.
-A collision-free schedule adds their sum, which is at most three times the gate count.
-The final oracle also satisfies every selected target after all later gate programs.
-Lean instantiates this schedule for one complete 254-bit digit adaptor.
-It proves the requested weighted field result after collision-free programming.
-Lean also instantiates one schedule for all 13 active adaptors of one complete RCB row.
-Its 3,302 selected bit gates return all three requested coordinate values in the same final oracle.
-It then composes the five membership adaptors with all 91 RCB rows.
-The complete fixed-key schedule has 1,188 digit adaptors and 301,752 selected bit gates.
-The linked schedule derives its point-layer input MAC with the exact EncPRF transform.
-It uses the programmed membership result as the whitening-key input.
-Fixed-key programming preserves the EncPRF and hash oracles.
-A satisfied linked schedule equals the full pipeline evaluation and returns all requested values.
-The programming bridge now retargets each selected curve and RCB coordinate.
-It puts one field residual in the low bit position and puts zero in every other position.
-Lean proves that this weighted fold equals the residual.
-It also proves that retargeting preserves every public table.
-Collision-free programming returns each requested homogeneous value for all 91 rows.
-The ideal output vector puts the requested point in row zero and the identity in the other 90 rows.
-Lean proves that each homogeneous row decodes correctly and that radix Horner evaluation returns the requested point.
-Retargeting to this vector preserves the complete public point table.
-Lean also derives a finite instance for the complete ArgoMAC randomness type.
-This type includes every algebraic value, label, permutation oracle, and random oracle.
-The uniform security tape has full support over every complete randomness value.
-Lean now defines the concrete online simulator under the challenge interface.
-It returns the selected labels, retargets the curve and point requests, and applies the exact linked schedule.
-The offline simulator coin is finite and contains no scalar or selected input.
-It samples every public coefficient, ciphertext row, label pair, permutation family, and random oracle uniformly.
-An explicit zero-valued coin supplies the nonempty witness, so the simulator needs no witness from its caller.
-Lean proves that a finite equivalence transports a uniform PMF between two finite types.
-It applies this result to the three real curve coefficients.
-For every fixed hidden context, these coefficients are an affine bijection of the bridge key and two uniform masks.
-Lean proves affine bijections for all public RCB X, Y, and Z coefficient groups.
-It also proves that the real \texttt{garbleX}, \texttt{garbleY}, and \texttt{garbleZ} tables equal these transports.
-The common zero pad is the sum of the public \texttt{y10} and \texttt{x9} digit offsets.
-The digit-adaptor offset is independent of its private slope.
-The 384-bit hash domain splits into $p\lfloor 2^{384}/p\rfloor$ complete field fibers and one suffix.
-Lean proves exact uniform field transport on the complete fibers.
-The equivalence uses residue-major order.
-Thus, its field coordinate equals the actual reduction modulo $p$.
-The offline coin samples one independent quotient for each of the 301,752 selected gates.
-Retargeting preserves each quotient and changes only its residue.
-It also proves that the suffix has exact mass
-$(2^{384}\bmod p)/2^{384}$, which is at most $p/2^{384}$.
-Lean applies a finite union bound to all selected gates.
-The aggregate suffix mass is at most $301752p/2^{384}$.
-This proof needs no independence assumption.
-Lean also converts this bound to the stated real-valued hash-lift rounding error.
-Lean now proves the required local marginal for one real gate.
-A three-step swap schedule extracts the outputs of the three distinct fixed-key permutations.
-The schedule preserves the uniform joint oracle tape exactly.
-Davies--Meyer feed-forward is a componentwise involution, and three blocks are equivalent to one 384-bit value.
-Thus, the construction's 384-bit gate hash is exactly uniform.
-Its rejected suffix has the exact local mass above.
-Lean splits the complete garbling tape into a uniform fixed-key oracle and all remaining randomness.
-A finite mixture theorem lifts the local law to the complete security tape.
-The label can depend on every non-fixed-oracle value.
-Lean now indexes the exact selected schedule by all 301,752 gates.
-The metadata contains each real location, window, and selected curve or linked point label.
-The full suffix union has mass at most $301752p/2^{384}$ on the complete tape.
-Lean also proves the exact law for one actual bit-adaptor ciphertext row.
-A two-step swap extracts both pad-permutation outputs and leaves every hash slot unchanged.
-Thus, the real plaintext can contain its hash-to-field offset.
-Davies--Meyer feed-forward, block joining, and XOR by the encoded field value are finite equivalences.
-The true row is exactly uniform on 256 bits.
-A finite mixture permits keys and slopes that depend on all non-fixed-oracle randomness.
-Lean now proves the good-event law for the actual zero pad.
-One finite product equivalence exposes each accepted hash lift as its exact residue and quotient.
-The low digit has coefficient one, so its residue is an additive pivot.
-Thus, a uniform accepted-residue vector gives an exact uniform digit offset after any fixed translation.
-The actual good \texttt{y10} and \texttt{x9} hash vectors give the two real offsets.
-Their sum is the real zero pad.
-Lean now proves that one gate's three hash reads and two pad reads are jointly uniform.
-The five fixed-key indices differ only in their slot field, so they are distinct.
-A five-slot swap schedule extracts all five outputs and preserves the uniform tape.
-Thus, the hash-based zero pad and the pad-based ciphertext row are independent on one gate.
-Lean also proves the general distinct-read tool.
-For any injective family of fixed-key indices, the joint permutation reads are uniform, with no bound on the count.
-The proof shows by induction that a schedule with distinct slots and distinct indices reads each entry at its slot.
-The window-sharing optimization reads one permutation at 91 labels per window, so the full read family is not index-injective.
-The joint transport therefore factors as independence across the 17,820 distinct window indices, times the within-window collision that the existing bad event already bounds.
-The next proof must package each window's read as one value, instantiate the distinct-read tool across windows, and compose the result with the coefficient transports and the collision bound.
+The bounded bridge form accepts a bridge that returns an exact result or records a bad event; it keeps both marginals exact by an independent coupling after a bad event.
+Every result disagreement implies the bad flag, and the final bad mass equals the bridge bad probability.
+A generic theorem reduces the complete \texttt{ConcreteAdaptivePrivacy} property to one trace transport and its Boolean change event.
 
-The complete row repairs the known perfect-correctness failure.
-The generic bounded bridge is complete.
-The construction still lacks the joint distributional hop for the RCB zero pad and ciphertext rows.
-It also lacks the final adaptive collision bound for that hop.
-The worst selected branch uses the three hash slots.
-Its zero-query numerator is
-\[
-  3\cdot 10692\cdot 91^2=265621356<2^{28}.
-\]
-The 100-bit margin is 2,814,100 numerator units.
-A direct five-slot union bound exceeds $2^{28}$.
-Lean proves the 100-bit arithmetic for each exclusive three-hash or two-pad branch.
-For a bucket with $f$ false selections and $t$ true selections, Lean proves
-$3f^2+2t^2\leq 3(f+t)^2$ and $3f+2t\leq 3(f+t)$.
-Thus, mixed selected bits stay below the three-hash bucket budget.
-The semantic reduction must still condition on the selected branch.
-A companion Kriterion change closes the challenge interface defects.
-It makes \texttt{Kriterion.Solution} a closed dependent bundle.
-It quantifies every proof over the BN254 field and group certificates, which remain declared challenge assumptions.
-The certificate-free benchmark garbler has a required equality to the proved scheme garbler.
-It also defines \texttt{Kriterion.Benchmark.garble} at a fixed scalar, security parameter, and seed.
-The security game now samples the complete finite random tape uniformly.
-The fixed 256-bit seed selects only the reproducible benchmark tape.
-This change permits exact uniform permutation and random-oracle proofs.
-The challenge must still reject this entry until the construction-specific adaptive proof is complete.
+\textbf{Collision accounting.}
+Each reached adversary query and its state is recorded, and the trace length is at most the query budget.
+A set of at most $k$ forbidden blocks has mass at most $k\cdot2^{-128}$, so a collision schedule over $q$ queries has mass at most $qk\cdot2^{-128}$.
+The 384-bit hash-to-field domain splits into $p\lfloor2^{384}/p\rfloor$ complete fibers and one rejected suffix of mass at most $p/2^{384}$.
+A finite union bound over all 301,752 selected gates gives the aggregate rounding error $301752p/2^{384}$ without an independence assumption, and Lean proves that this term keeps 100 bits.
+
+\textbf{Gate programming.}
+The gate programmer applies an ordered selected-gate schedule, preserves the shared invariant, and counts every programmed slot: three for a false bit and two for a true bit.
+Lean instantiates the schedule for one 254-bit digit adaptor, for one 13-adaptor RCB row with 3,302 gates, and for the full circuit with 1,188 adaptors and 301,752 gates.
+The linked schedule derives the point-layer input MAC with the exact EncPRF transform.
+A satisfied schedule equals the full pipeline evaluation and returns every requested homogeneous value.
+Retargeting puts one field residual in the low bit position of each selected row and preserves every public table.
+The ideal output vector puts the requested point in row zero and the identity in the other 90 rows, and Lean proves that it decodes to the requested point.
+
+\textbf{Simulator.}
+The concrete online simulator returns the selected labels, retargets the curve and point requests, and applies the linked schedule.
+The offline coin is finite and contains no scalar or selected input.
+It samples every public coefficient, ciphertext row, label pair, permutation family, random oracle, and one hash-lift quotient per gate uniformly.
+
+\textbf{Distribution transports.}
+Lean proves exact uniform laws for the following real values on the complete security tape:
+\begin{itemize}
+  \item the three curve coefficients and all RCB X, Y, and Z coefficient groups, as affine bijections of their row masks;
+  \item the 384-bit gate hash of one real gate, with the exact rejected-suffix mass;
+  \item the 256-bit ciphertext row of one real bit adaptor, for keys and slopes that depend on all non-fixed-oracle randomness;
+  \item the RCB zero pad on the good event, as the sum of the \texttt{y10} and \texttt{x9} accepted-residue digit offsets;
+  \item the five fixed-key reads of one gate jointly, so the hash-based zero pad and the pad-based ciphertext row of one gate are independent;
+  \item the joint reads of any injective family of fixed-key indices, with no bound on the family size.
+\end{itemize}
+
+\subsection{Adaptive privacy: open gap}
+
+The construction still lacks the joint distributional hop that transports the real public garbling view to the offline coin outside the recorded collision event.
+The window-sharing optimization reads one fixed-key permutation at 91 labels per window, so the full read family is not index-injective.
+The transport therefore factors as independence across the 17,820 distinct window indices times the within-window collision that the existing bad event already bounds.
+The remaining proof must package each window's read as one value, instantiate the injective-family law across windows, and compose the result with the coefficient transports and the collision bound into the bridge premise.
+
+The arithmetic side is closed.
+The worst selected branch uses the three hash slots and has zero-query numerator $3\cdot10692\cdot91^2=265621356<2^{28}$, which leaves a margin of 2,814,100 units.
+A direct five-slot union bound would exceed $2^{28}$, so the proof must condition on the selected branch.
+Lean proves the 100-bit arithmetic for each exclusive three-hash or two-pad branch, and proves $3f^2+2t^2\le3(f+t)^2$ and $3f+2t\le3(f+t)$ for a bucket with $f$ false and $t$ true selections.
+
+The formal property counts oracle queries and one decision step.
+It does not count adversary local computation or simulator work, so it is an ideal-oracle query metric rather than a standard PPT definition.
+
+\subsection{Challenge interface}
+
+A companion Kriterion change closes two interface defects.
+It makes \texttt{Kriterion.Solution} a closed dependent bundle and quantifies every proof over the BN254 field and group certificates, which remain declared challenge assumptions.
+It adds the certificate-free \texttt{Kriterion.Benchmark.garble} at a fixed scalar, security parameter, and seed, with a required equality to the proved scheme garbler.
+The security game samples the complete finite random tape uniformly; the fixed 256-bit seed selects only the reproducible benchmark tape.
+Until the adaptive proof is complete, no value inhabits \texttt{Kriterion.Solution}, and the challenge must reject this entry.
 
 \section{Reproduction}
 
